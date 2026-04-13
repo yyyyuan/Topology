@@ -291,6 +291,7 @@ if __name__ == "__main__":
     pred_labels = [0] * OUTPUT_SIZE
 
     # For one single image, there is only 1 matching category out of all 1000 categories.
+    # TODO: Eventually this should be modified by datasets, instead of being hardcoded.
     true_labels[427] = 1
 
     while True:
@@ -317,7 +318,7 @@ if __name__ == "__main__":
         if (index % 100000 == 0):
             print("index: ", index)
 
-        # After one full round calculation of all nodes in the manifold, reset the confusion matrix.
+        # After one full round calculation of all nodes in the manifold, calculate the F1-score on error rates and reset the confusion matrix.
         if index == (n - 1):
             # Run the record of all category outputs in one run.
             record(cm, true_labels, pred_labels)
@@ -326,8 +327,7 @@ if __name__ == "__main__":
             predictions = []
             cm = create_confusion_matrix(OUTPUT_SIZE)
 
-        # TODO: Calculate error rate using confusion-matrix. Output F1-score
-        # Find the output category.
+        # TODO: Migrate the function into GPU and see if magic happens!
 
 
 
