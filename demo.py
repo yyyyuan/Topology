@@ -18,10 +18,10 @@ capped by ``max_micro_steps``.
 
 """
 Format:
-------------------------------------
+--------------------------------------
 | addr | counter |   k   | dir| state|
 | 0-21 |  22-24  | 25-29 | 30 |  31  |
------------------------------------
+--------------------------------------
 
 For each value in integer format, there are 16 different changes it could be.
 
@@ -52,6 +52,10 @@ MASK_DIR = 0b1
 MASK_STATE = 0b1
 
 U32_MASK = 0xFFFFFFFF
+# Only bits related to k are set to 0, 0b11111111111111111111111110000011 <- 32-bits
+K_MASK_IN_WORD = 0xFFFFFF83
+# Only bits related to directions are set to 0, 0b11111111111111111111111111111101 <- 32-bits
+DIRECTION_MASK_IN_WORD = 0xFFFFFFFD
 
 # Bit 30: 1 = increase k when strength hits 0; 0 = decrease k (with wrap in 5 bits).
 DIR_INCREASE_K = 1
@@ -63,7 +67,7 @@ IMAGE_HEIGHT = 64
 CHANNELS = 3 # RGB has 3 channcels in each pixel.
 BITS_PER_CHANNEL = 8
 
-INPUT_SIZE = IMAGE_WIDTH * IMAGE_HEIGHT * CHANNELS * BITS_PER_CHANNEL  # 98304 bits for one image.
+INPUT_SIZE = IMAGE_WIDTH * IMAGE_HEIGHT * CHANNELS * BITS_PER_CHANNEL  # 98304 = 64 * 64 * 3 * 8 bits for one image.
 OUTPUT_SIZE = 1000 # Let's do 1000 different categories.
 
 IMAGE_PATH = "test_image.png"
@@ -80,11 +84,11 @@ def u32(x: int) -> int:
     return x & U32_MASK
 
 
-def pack_word(addr: int, dir_bit: int, k: int, counter: int, state: int) -> int:
+def pack_word(addr: int, counter: int, k: int, dir_bit: int, state: int) -> int:
     """Pack fields into one uint32 word (masked)."""
     return u32(
         (state & 1)
-        | ((dir_bit & 1) << SHIFT_DIR)
+        | ((dir_bit & MASK_DIR) << SHIFT_DIR)
         | ((k & MASK_K) << SHIFT_K)
         | ((counter & MASK_COUNTER) << SHIFT_COUNTER)
         | ((addr & MASK_ADDR) << SHIFT_ADDR)
@@ -141,6 +145,28 @@ def resonates(self_state: int, neighbor_state: int) -> int:
     """1 if 1-bit states differ, else 0."""
     return (self_state ^ neighbor_state) & 1
 
+def decide_k_and_dirction(k: int, direction: int):
+    if k == 0 and direction != DIR_INCREASE_K:
+        direction = DIR_INCREASE_K
+    if k == ADDR_BITS and direction == DIR_INCREASE_K:
+        direction = DIR_DECREASE_K
+
+    if direction == DIR_INCREASE_K:
+        k = (k + 1) & MASK_K
+    else:
+        k = (k - 1) & MASK_K
+
+    return k, direction
+
+def update_k_and_direction_within_word(word: int) -> int:
+    w = u32(word)
+    direction = unpack_dir(w)
+    k = unpack_k(w)
+
+    k, direction = decide_k_and_dirction(k, direction)
+
+    return w & K_MASK_IN_WORD & DIRECTION_MASK_IN_WORD | ((k & MASK_K) << SHIFT_K) | ((direction & MASK_DIR) << SHIFT_DIR)
+
 def one_micro(word: int) -> int:
     """Single pull: update counter from resonance; if counter is 0, advance k. State unchanged."""
     w = u32(word)
@@ -156,16 +182,9 @@ def one_micro(word: int) -> int:
     neighbor = global_array[neighbor_index]
 
     # Output node cannot be used as source to pull data from.
+    # Instead we update sections k and direction inside the word directly.
     if (is_output_range(neighbor_index)):
-        if k == 0 and direction != DIR_INCREASE_K:
-            direction = DIR_INCREASE_K
-        if k == ADDR_BITS and direction == DIR_INCREASE_K:
-            direction = DIR_DECREASE_K
-
-        if direction == DIR_INCREASE_K:
-            k = (k + 1) & MASK_K
-        else:
-            k = (k - 1) & MASK_K
+        return update_k_and_direction_within_word(w)
 
     neighbor_state = unpack_state(neighbor)
     resonate = self_state != neighbor_state
@@ -178,17 +197,9 @@ def one_micro(word: int) -> int:
 
     # Change to next index if the counter strength is 0.
     if strength == 0:
-        if k == 0 and direction != DIR_INCREASE_K:
-            direction = DIR_INCREASE_K
-        if k == ADDR_BITS and direction == DIR_INCREASE_K:
-            direction = DIR_DECREASE_K
+        k, direction = decide_k_and_dirction(k, direction)
 
-        if direction == DIR_INCREASE_K:
-            k = (k + 1) & MASK_K
-        else:
-            k = (k - 1) & MASK_K
-
-    out = pack_word(address, direction, k, strength, self_state)
+    out = pack_word(address, strength, k, direction, self_state)
 
     return out
 
