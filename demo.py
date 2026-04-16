@@ -294,6 +294,10 @@ if __name__ == "__main__":
     # TODO: Eventually this should be modified by datasets, instead of being hardcoded.
     true_labels[427] = 1
 
+    # TODO: The manifold is able to accept arbitrary signals other than standard image inputs.
+    #       Those arbitrary signals are vital to evolve the manifold to generate expected outputs.
+    #       It's easy to see such architecture is extendable, to meet all different types of real-world (physical) requirements.
+
     while True:
         if (is_input_range(index)):
             # Increment over input nodes, which don't pull signals from other nodes.
