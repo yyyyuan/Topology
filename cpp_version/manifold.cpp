@@ -46,8 +46,8 @@ int32_t IDX_DIMENSION_1_RANGE = (1 << (ADDR_BITS - 1)) + IDX_DIMENSION_0_RANGE; 
 
 // The range of Reaction must be larger than 2024 and out of input dimension range.
 // The maximum range means there is very long history of correct predictions.
-int32_t IDX_REACTION_RANGE_START = 3000;
-int32_t IDX_REACTION_RANGE_END = 4000;
+int32_t IDX_REACTION_RANGE_START = 100000;
+int32_t IDX_REACTION_RANGE_END = 101000;
 
 // =========== End of Constants =========
 
@@ -338,7 +338,7 @@ void summary(const ConfusionMatrix& matrix) {
   {
     for (int i = 0; i < n; i++) {
       // If all TP, FP and FN are 0, then skip calculating f1_score for it since it's not useful in the calculation.
-      if (matrix.tp[i] + matrix.fp[0] + matrix.fn[0] == 0) {
+      if (matrix.tp[i] + matrix.fp[i] + matrix.fn[i] == 0) {
         continue;
       }
 
@@ -357,6 +357,7 @@ void summary(const ConfusionMatrix& matrix) {
 
     macro = sum / count;
   }
+  printf("Count in F1-score cal: %d\n", count);
   printf("Macro F1-Score: {%f:.4f}\n", macro);
   // if per_class:
   //     parts = [f"cat {c}: {f1:.4f}" for c, f1 in sorted(per_class.items())]
@@ -382,6 +383,7 @@ int main(void)
   int32_t is_output_category_matching = 0;
   int32_t predictions_made = 0;
   std::vector<int32_t> output_category_correctness(IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START);
+  bool is_prediction_hit = false; // True if the correct prediction is made.
 
   // For one single image, there is only 1 matching category out of all 1000 categories.
   // TODO: Eventually this should be modified by datasets, instead of being hardcoded.
@@ -402,11 +404,14 @@ int main(void)
       }
 
       // The core calculation.
-      int32_t updated_word = heartbeat(global_array[index]);
+      int32_t current_word = global_array[index];
+      int32_t updated_word = heartbeat(current_word);
       global_array[index] = updated_word;
 
       if (is_output_range(index)) {
+        int32_t previous_prediction = unpack_state(current_word);
         int32_t pred_category = unpack_state(updated_word);
+        bool fire_output_signal = pred_category != previous_prediction;
 
         // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
         int32_t offset = index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
@@ -421,27 +426,30 @@ int main(void)
         }
 
         int32_t count_of_wrong_guesses = 0;
-        if (offset == 427 && pred_category == 1) {
+        if (offset == 427 && fire_output_signal) {
           printf("offset 247: %d\n", pred_category);
-          output_category_correctness[offset] += 10;
-          is_output_category_matching += output_category_correctness[offset];
+          output_category_correctness[offset] += 1000;
+          // is_output_category_matching += output_category_correctness[offset];
+          is_output_category_matching += 1000;
+          is_prediction_hit = true;
         }
-        else if ((offset == 427 && pred_category == 0)) {
+        else if ((offset == 427 && !fire_output_signal)) {
           // output_category_correctness[offset]--;      
           printf("offset 247: %d\n", pred_category);
           output_category_correctness[offset]--;
           output_category_correctness[offset] = std::max(0, output_category_correctness[offset]);
-          is_output_category_matching += output_category_correctness[offset];
+          // is_output_category_matching += output_category_correctness[offset];
+          is_output_category_matching--;
           count_of_wrong_guesses++;  
         }
-        else if (offset != 427 && pred_category == 1) {
+        else if (offset != 427 && fire_output_signal) {
           is_output_category_matching--;
           is_output_category_matching = std::max(0, is_output_category_matching);
           count_of_wrong_guesses++;  
         }
 
         // A constant 1->0->1 or 0->1->1 represent the prediction.
-        pred_labels[offset] = pred_category;
+        pred_labels[offset] = int(fire_output_signal);
         cm.num_samples++;
       }
       // if (index % 100000 == 0) {
@@ -450,15 +458,19 @@ int main(void)
     }
 
     // After each round of calculation, decide the scale of correct prediction stimulation.
-    // int32_t reaction_signal = init_reaction_signal;
-    // for (int i = 0; i < (IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START); i++) {
-    //   if (i < is_output_category_matching) {
-    //     global_array[i + IDX_REACTION_RANGE_START] = pack_word(i + IDX_REACTION_RANGE_START, 1, 0, 1, reaction_signal);
-    //     reaction_signal = 1 - reaction_signal;
-    //   }
-    // }
-    // init_reaction_signal = 1 - init_reaction_signal;
-    load_image_to_manifold(is_output_category_matching);  // Control the input range after evaluation.
+    if (is_prediction_hit) {
+      int32_t reaction_signal = init_reaction_signal;
+      for (int i = 0; i < (IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START); i++) {
+        if (i < is_output_category_matching) {
+          global_array[i + IDX_REACTION_RANGE_START] = pack_word(i + IDX_REACTION_RANGE_START, 1, 0, 1, reaction_signal);
+        }
+      }
+      is_prediction_hit = false;  // Reset is_prediction_hit after each round.
+      init_reaction_signal = 1 - init_reaction_signal;
+    }
+
+    init_reaction_signal = 1 - init_reaction_signal;
+    // load_image_to_manifold(is_output_category_matching);  // Control the input range after evaluation.
     printf("predictions made: %d\n", predictions_made);
     printf("next round input range: %d\n", is_output_category_matching);
     predictions_made = 0;  // Reset the predictions_made.
