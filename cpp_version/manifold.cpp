@@ -3,6 +3,15 @@
 #include <cstdint>  // Required for int32_t
 #include <vector>
 
+/*
+Format:
+--------------------------------------
+| addr | counter |   k   | dir| state|
+| 0-21 |  22-24  | 25-29 | 30 |  31  |
+--------------------------------------
+
+For each value in integer format, there are 16 different changes it could be.
+*/
 
 // ============ Constants ============
 int32_t ADDR_BITS = 22;
@@ -53,6 +62,7 @@ int32_t IDX_REACTION_RANGE_END = 101000;
 
 // ========== Global array ======
 std::vector<int32_t> global_array(1 << ADDR_BITS);
+std::vector<int32_t> cycle_delays_array(1 << ADDR_BITS);
 
 // ========== Operators related to words =========
 int32_t pack_word(int32_t addr, int32_t counter, int32_t k, int32_t dir_bit, int32_t state) {
@@ -177,10 +187,20 @@ int32_t heartbeat(int32_t w) {
   int32_t neighbor_index = address ^ (1 << k); // Flip the bit at k
   int32_t neighbor = global_array.at(neighbor_index);
 
+  // Forbid self-recycling connection pair of nodes.
+  int32_t target_of_neighbor = unpack_addr(neighbor);
+
+  // Make cycle delays based on connection strength.
+  if (cycle_delays_array[address] > 0) {
+    cycle_delays_array[address]--;
+    return w;
+  }
+
   // Skip heartbeat over reaction nodes since they will be taken care of separately.
-  // if (is_reaction_range(address)) {
-  //   return w;
-  // }
+  // TODO: Update cycle delay accordingly, even for output nodes.
+  if (is_reaction_range(address)) {
+    return w;
+  }
 
   // Output node cannot be used as source to pull data from.
   // Instead we update sections k and direction inside the word directly.
@@ -198,10 +218,14 @@ int32_t heartbeat(int32_t w) {
   else {
       strength = std::max(0, strength - 1);
   }
+  cycle_delays_array[address] = 7 - strength;  // Update the cycle_delay for the word based on its connection strength.
 
   // Change to next index if the counter strength is 0.
-  if (strength == 0) {
-      decide_k_and_dirction(k, direction);
+  if (strength == 0 && (address == target_of_neighbor)) {
+    strength = 0;
+    // printf("k, direction before change: %d, %d\n", k, direction);
+    decide_k_and_dirction(k, direction);
+    // printf("k, direction after change: %d, %d\n", k, direction);
   }
 
   return pack_word(address, strength, k, direction, self_state);
@@ -212,6 +236,7 @@ int32_t heartbeat(int32_t w) {
 // This function currently only loads one image into manifold.
 // Hence signals in input nodes don't need to change.
 // TODO: Upgrade this function so it can read tons of data from sources such as ImageNet.
+// TODO: Change the input formats from constant 1s into 0<->1 pulse to mimic input signals.
 void load_image_to_manifold(int32_t input_range) {
   // Hardcode the image in path "/content/test_image.png" into manifold to simplify the POC.
   int32_t idx_dimension0 = 0;
@@ -230,20 +255,20 @@ void load_image_to_manifold(int32_t input_range) {
 
       for (int bit_pos = 7; bit_pos >= 0; bit_pos--) {
         if (is_dimension_0) {
-          global_array[idx_dimension0] = pack_word(idx_dimension0, 1, 0, 1, (r >> bit_pos) & 1);
+          global_array[idx_dimension0] = pack_word(idx_dimension0, 0, 0, 1, (r >> bit_pos) & 1);
           idx_dimension0++;
         } else {
-          global_array[idx_dimension1] = pack_word(idx_dimension1, 1, 0, 1, (r >> bit_pos) & 1);
+          global_array[idx_dimension1] = pack_word(idx_dimension1, 0, 0, 1, (r >> bit_pos) & 1);
           idx_dimension1++;
         }
       }
 
       for (int bit_pos = 7; bit_pos >= 0; bit_pos--) {
         if (is_dimension_0) {
-          global_array[idx_dimension0] = pack_word(idx_dimension0, 1, 0, 1, (g >> bit_pos) & 1);
+          global_array[idx_dimension0] = pack_word(idx_dimension0, 0, 0, 1, (g >> bit_pos) & 1);
           idx_dimension0++;
         } else {
-          global_array[idx_dimension1] = pack_word(idx_dimension1, 1, 0, 1, (g >> bit_pos) & 1);
+          global_array[idx_dimension1] = pack_word(idx_dimension1, 0, 0, 1, (g >> bit_pos) & 1);
           idx_dimension1++;
         }
       }
@@ -370,7 +395,8 @@ int main(void)
 {
   // Init the global_array.
   for (int i = 0; i < (1 << ADDR_BITS); i++) {
-    global_array[i] = pack_word(i, 1, 0, 1, 0);
+    global_array[i] = pack_word(i, 0, 0, 1, 0);
+    cycle_delays_array[i] = 7;  // Start with maximum cycle delay when the connection strength is 0.
   }
   load_image_to_manifold(INPUT_SIZE);
 
@@ -395,6 +421,11 @@ int main(void)
   // TODO: The manifold is able to accept arbitrary signals other than standard image inputs.
   //       Those arbitrary signals are vital to evolve the manifold to generate expected outputs.
   //       It's easy to see such architecture is extendable, to meet all different types of real-world (physical) requirements.
+  // TODO: Special handlings to achieve "light speed limitation" in both CPU and GPU infra.
+  //       Currently this manifold runs on CPU and is naturally running in synchronization,
+  //       we need to build an extra array storing the cycle deplay for each connetion.
+  //       In GPU mode, the manifold runs asynchronatically so the cycle delay is achived from asynchronizatin naturally.
+  // TODO: Add a new constant 0/1 pulse into manifold and see if it affects the manifold evolvement.
 
   while (true) {
     for (int index = 0; index < n; index++) {
@@ -411,11 +442,14 @@ int main(void)
       if (is_output_range(index)) {
         int32_t previous_prediction = unpack_state(current_word);
         int32_t pred_category = unpack_state(updated_word);
-        bool fire_output_signal = pred_category != previous_prediction;
+        int32_t counter = unpack_counter(updated_word);
+        // Only 1->0 is recognized as a fire signal.
+        // bool fire_output_signal = pred_category != previous_prediction;
+        bool fire_output_signal = counter == 2;  // The connection strength represents the output signal.
 
         // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
         int32_t offset = index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
-        if (pred_category == 1) {
+        if (fire_output_signal) {
           predictions_made++;
         }
 
@@ -428,9 +462,9 @@ int main(void)
         int32_t count_of_wrong_guesses = 0;
         if (offset == 427 && fire_output_signal) {
           printf("offset 247: %d\n", pred_category);
-          output_category_correctness[offset] += 1000;
+          output_category_correctness[offset] += 1;
           // is_output_category_matching += output_category_correctness[offset];
-          is_output_category_matching += 1000;
+          is_output_category_matching += 1;
           is_prediction_hit = true;
         }
         else if ((offset == 427 && !fire_output_signal)) {
@@ -458,16 +492,16 @@ int main(void)
     }
 
     // After each round of calculation, decide the scale of correct prediction stimulation.
-    if (is_prediction_hit) {
-      int32_t reaction_signal = init_reaction_signal;
-      for (int i = 0; i < (IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START); i++) {
-        if (i < is_output_category_matching) {
-          global_array[i + IDX_REACTION_RANGE_START] = pack_word(i + IDX_REACTION_RANGE_START, 1, 0, 1, reaction_signal);
-        }
-      }
-      is_prediction_hit = false;  // Reset is_prediction_hit after each round.
-      init_reaction_signal = 1 - init_reaction_signal;
-    }
+    // if (is_prediction_hit) {
+    //   int32_t reaction_signal = init_reaction_signal;
+    //   for (int i = 0; i < (IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START); i++) {
+    //     if (i < is_output_category_matching) {
+    //       global_array[i + IDX_REACTION_RANGE_START] = pack_word(i + IDX_REACTION_RANGE_START, 0, 0, 1, reaction_signal);
+    //     }
+    //   }
+    //   is_prediction_hit = false;  // Reset is_prediction_hit after each round.
+    //   init_reaction_signal = 1 - init_reaction_signal;
+    // }
 
     init_reaction_signal = 1 - init_reaction_signal;
     // load_image_to_manifold(is_output_category_matching);  // Control the input range after evaluation.
