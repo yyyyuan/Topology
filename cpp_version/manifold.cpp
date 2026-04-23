@@ -166,6 +166,7 @@ bool is_output_range(int32_t index) {
   return false;
 }
 
+// The range where inputs are decided by outputs of manifold.
 bool is_reaction_range(int32_t index) {
   if (index >= IDX_REACTION_RANGE_START && index < IDX_REACTION_RANGE_END) {
     return true;
@@ -194,6 +195,16 @@ int32_t heartbeat(int32_t w) {
   if (cycle_delays_array[address] > 0) {
     cycle_delays_array[address]--;
     return w;
+  }
+
+  // Add a new non-linearity into manifold.
+  // A very simple logic: 
+  //  1. if the state is 1, flip it back to 0 in this run and doing nothing else.
+  //  2. if the state is 0, continue the logic.
+  if (self_state == 1) {
+    // A hacking way, since the state is at the last bit, flipping it from 1 to 0 meaning subtract 1 directly.
+    // return w - 1;
+    return pack_word(address, strength, k, direction, /*state=*/0);
   }
 
   // Skip heartbeat over reaction nodes since they will be taken care of separately.
@@ -426,6 +437,9 @@ int main(void)
   //       we need to build an extra array storing the cycle deplay for each connetion.
   //       In GPU mode, the manifold runs asynchronatically so the cycle delay is achived from asynchronizatin naturally.
   // TODO: Add a new constant 0/1 pulse into manifold and see if it affects the manifold evolvement.
+  // TODO: Add a non-linearity into node connection, after the node state becomes 1, it will flip back to 0 again in the next run.
+  //       This behavior only exists in nodeds in manifold, allowing inputs to be a constant stream of 1s if necessary.
+  //       The output nodes still follow non-linearity behavior, so it outputs are still a constant flip of 0/1s.
 
   while (true) {
     for (int index = 0; index < n; index++) {
