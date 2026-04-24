@@ -2,6 +2,9 @@
 #include <math.h>
 #include <cstdint>  // Required for int32_t
 #include <vector>
+#include <algorithm> // For std::shuffle
+#include <random>    // For std::mt19937 and std::random_device
+#include <numeric>   // For std::iota
 
 /*
 Format:
@@ -63,6 +66,7 @@ int32_t IDX_REACTION_RANGE_END = 101000;
 // ========== Global array ======
 std::vector<int32_t> global_array(1 << ADDR_BITS);
 std::vector<int32_t> cycle_delays_array(1 << ADDR_BITS);
+std::vector<int32_t> index_array(1 << ADDR_BITS);
 
 // ========== Operators related to words =========
 int32_t pack_word(int32_t addr, int32_t counter, int32_t k, int32_t dir_bit, int32_t state) {
@@ -192,10 +196,10 @@ int32_t heartbeat(int32_t w) {
   int32_t target_of_neighbor = unpack_addr(neighbor);
 
   // Make cycle delays based on connection strength.
-  if (cycle_delays_array[address] > 0) {
-    cycle_delays_array[address]--;
-    return w;
-  }
+  // if (cycle_delays_array[address] > 0) {
+  //   cycle_delays_array[address]--;
+  //   return w;
+  // }
 
   // Add a new non-linearity into manifold.
   // A very simple logic: 
@@ -232,7 +236,10 @@ int32_t heartbeat(int32_t w) {
   cycle_delays_array[address] = 7 - strength;  // Update the cycle_delay for the word based on its connection strength.
 
   // Change to next index if the counter strength is 0.
-  if (strength == 0 && (address == target_of_neighbor)) {
+  // TODO: Remove the prohibition of self-pulling synchronization between two nodoes where two connections only connect with each other.
+  //       This will be replaced by random ordering in single thread CPU mode.
+  //       && (address == target_of_neighbor)
+  if (strength == 0) {
     strength = 0;
     // printf("k, direction before change: %d, %d\n", k, direction);
     decide_k_and_dirction(k, direction);
@@ -401,6 +408,19 @@ void summary(const ConfusionMatrix& matrix) {
 }
 // ========== End of Error Rate Calculations ===
 
+// ========== Index Array Randomization =======
+
+void shuffle() {
+  // Use random_device to seed the generator
+  std::random_device rd;
+  std::mt19937 g(rd());
+
+  // Shuffle the index array
+  std::shuffle(index_array.begin(), index_array.end(), g);
+}
+
+// ========== End of Index Array Randomization =======
+
 
 int main(void)
 {
@@ -408,6 +428,7 @@ int main(void)
   for (int i = 0; i < (1 << ADDR_BITS); i++) {
     global_array[i] = pack_word(i, 0, 0, 1, 0);
     cycle_delays_array[i] = 7;  // Start with maximum cycle delay when the connection strength is 0.
+    index_array[i] = i;
   }
   load_image_to_manifold(INPUT_SIZE);
 
@@ -448,12 +469,14 @@ int main(void)
         continue;
       }
 
-      // The core calculation.
-      int32_t current_word = global_array[index];
-      int32_t updated_word = heartbeat(current_word);
-      global_array[index] = updated_word;
+      int32_t global_array_index = index_array[index];
 
-      if (is_output_range(index)) {
+      // The core calculation.
+      int32_t current_word = global_array[global_array_index];
+      int32_t updated_word = heartbeat(current_word);
+      global_array[global_array_index] = updated_word;
+
+      if (is_output_range(global_array_index)) {
         int32_t previous_prediction = unpack_state(current_word);
         int32_t pred_category = unpack_state(updated_word);
         int32_t counter = unpack_counter(updated_word);
@@ -462,7 +485,7 @@ int main(void)
         bool fire_output_signal = counter == 2;  // The connection strength represents the output signal.
 
         // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
-        int32_t offset = index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
+        int32_t offset = global_array_index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
         if (fire_output_signal) {
           predictions_made++;
         }
@@ -531,6 +554,7 @@ int main(void)
     summary(cm);
     pred_labels.assign(OUTPUT_SIZE, 0);
     cm = create_confusion_matrix(OUTPUT_SIZE);
+    shuffle();  // Shuffle the order of nodes to execute in the next run!
   // TODO: Migrate the function into GPU and see if magic happens!
   }
 }
