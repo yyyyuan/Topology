@@ -5,6 +5,8 @@
 #include <algorithm> // For std::shuffle
 #include <random>    // For std::mt19937 and std::random_device
 #include <numeric>   // For std::iota
+#include <string>
+#include <fstream>
 
 /*
 Format:
@@ -67,6 +69,10 @@ int32_t IDX_REACTION_RANGE_END = 101000;
 std::vector<int32_t> global_array(1 << ADDR_BITS);
 std::vector<int32_t> cycle_delays_array(1 << ADDR_BITS);
 std::vector<int32_t> index_array(1 << ADDR_BITS);
+
+// ========== Manifold file ========
+std::string MANIFOLD_PATH = "manifold.txt";
+std::string DEBUG_PATH = "debug.txt";
 
 // ========== Operators related to words =========
 int32_t pack_word(int32_t addr, int32_t counter, int32_t k, int32_t dir_bit, int32_t state) {
@@ -369,6 +375,15 @@ float error_rate(const ConfusionMatrix& matrix) {
 
 // F1-score calculation is put in the summary.
 void summary(const ConfusionMatrix& matrix) {
+  // Calculate the count of nodes with state 1.
+  int32_t active_state_count = 0;
+  for (int32_t word : global_array) {
+    if (word & 1) {
+      active_state_count++;
+    }
+  }
+  printf("*** Active node count: {%d} ***\n", active_state_count);
+
   int32_t samples = matrix.num_samples;
   float rate = error_rate(matrix);
   printf("Samples: {%d}, Error rate: {%f:.4f}\n", samples, rate);
@@ -406,6 +421,19 @@ void summary(const ConfusionMatrix& matrix) {
   //     parts = [f"cat {c}: {f1:.4f}" for c, f1 in sorted(per_class.items())]
   //     print("Per-category F1: " + ", ".join(parts))
 }
+
+// A summary of the shape of manifold/global_array before the execution.
+void pre_run_summary() {
+  // Calculate the count of nodes with state 1.
+  int32_t active_state_count = 0;
+  for (int32_t word : global_array) {
+    if (word & 1) {
+      active_state_count++;
+    }
+  }
+  printf("=======\n PreRun Active node count: {%d} \n=======\n", active_state_count);
+}
+
 // ========== End of Error Rate Calculations ===
 
 // ========== Index Array Randomization =======
@@ -421,12 +449,62 @@ void shuffle() {
 
 // ========== End of Index Array Randomization =======
 
+// ========== Manifold Loading & Saving =========
+bool save_manifold(const std::vector<int32_t>& manifold_array, const std::string& filepath, const std::string& debug_filepath) {
+    std::ofstream out(filepath, std::ios::out | std::ios::trunc);
+    std::ofstream debug(debug_filepath, std::ios::out | std::ios::trunc);
+    if (!out.is_open() || !debug.is_open()) return false;
+    for (int32_t n : manifold_array) {
+        out << n << '\n';
+        debug << std::bitset<32>(static_cast<uint32_t>(n)) << '\n';
+    }
+    return out.good();
+}
 
-int main(void)
+bool load_manifold(std::vector<int32_t>& manifold_array, const std::string& filepath) {
+    std::vector<int32_t> input_array;
+    std::ifstream in(filepath);
+    if (!in.is_open()) return false;
+    double value;
+    while (in >> value) {
+        input_array.push_back(value);
+    }
+
+    if (input_array.size() != (1 << ADDR_BITS)) {
+      return false;
+    }
+
+    manifold_array = std::move(input_array);
+    return true;
+}
+
+// ========== End of Manifold Loading & Saving ============
+
+int main(int argc, char* argv[])
 {
+  bool use_save_data = false;
+  int32_t maximum_runs = 10;
+  for (int i = 1; i < argc; ++i) {
+      std::string arg = argv[i];
+      if (arg == "--use_save_data") {
+        use_save_data = true;
+      }
+      if (arg == "--runs" && i + 1 < argc) {
+        maximum_runs = static_cast<int32_t>(std::atoi(argv[++i]));
+      }
+  }
+
   // Init the global_array.
+  bool need_init = false;
+  if (use_save_data) {
+    need_init = !load_manifold(global_array, MANIFOLD_PATH);
+  }
+  printf("Do we need to re-init manifold array: %d\n", need_init);
+
   for (int i = 0; i < (1 << ADDR_BITS); i++) {
-    global_array[i] = pack_word(i, 0, 0, 1, 0);
+    if (need_init) {
+      global_array[i] = pack_word(i, 0, 0, 1, 0);
+    }
     cycle_delays_array[i] = 7;  // Start with maximum cycle delay when the connection strength is 0.
     index_array[i] = i;
   }
@@ -462,14 +540,16 @@ int main(void)
   //       This behavior only exists in nodeds in manifold, allowing inputs to be a constant stream of 1s if necessary.
   //       The output nodes still follow non-linearity behavior, so it outputs are still a constant flip of 0/1s.
 
-  while (true) {
+  shuffle();  // Do a shuffle before the execution!
+  int count = 0;
+  pre_run_summary();
+  while (count++ < maximum_runs) {
     for (int index = 0; index < n; index++) {
-      if (is_input_range(index)) {
+      int32_t global_array_index = index_array[index];
+      if (is_input_range(global_array_index)) {
         // Increment over input nodes, which don't pull signals from other nodes.
         continue;
       }
-
-      int32_t global_array_index = index_array[index];
 
       // The core calculation.
       int32_t current_word = global_array[global_array_index];
@@ -556,5 +636,9 @@ int main(void)
     cm = create_confusion_matrix(OUTPUT_SIZE);
     shuffle();  // Shuffle the order of nodes to execute in the next run!
   // TODO: Migrate the function into GPU and see if magic happens!
+  }
+
+  if (use_save_data) {
+    save_manifold(global_array, MANIFOLD_PATH, DEBUG_PATH);
   }
 }
