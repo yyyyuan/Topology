@@ -373,16 +373,20 @@ float error_rate(const ConfusionMatrix& matrix) {
   return total_errors / total_decisions;
 }
 
-// F1-score calculation is put in the summary.
-void summary(const ConfusionMatrix& matrix) {
-  // Calculate the count of nodes with state 1.
+// Calculate the count of nodes with state 1 in the manifold.
+int32_t calcualte_active_nodoes() {
   int32_t active_state_count = 0;
   for (int32_t word : global_array) {
     if (word & 1) {
       active_state_count++;
     }
   }
-  printf("*** Active node count: {%d} ***\n", active_state_count);
+  return active_state_count;
+}
+
+// F1-score calculation is put in the summary.
+void summary(const ConfusionMatrix& matrix) {
+  printf("*** Active node count: {%d} ***\n", calcualte_active_nodoes());
 
   int32_t samples = matrix.num_samples;
   float rate = error_rate(matrix);
@@ -424,14 +428,7 @@ void summary(const ConfusionMatrix& matrix) {
 
 // A summary of the shape of manifold/global_array before the execution.
 void pre_run_summary() {
-  // Calculate the count of nodes with state 1.
-  int32_t active_state_count = 0;
-  for (int32_t word : global_array) {
-    if (word & 1) {
-      active_state_count++;
-    }
-  }
-  printf("=======\n PreRun Active node count: {%d} \n=======\n", active_state_count);
+  printf("=======\n PreRun Active node count: {%d} \n=======\n", calcualte_active_nodoes());
 }
 
 // ========== End of Error Rate Calculations ===
