@@ -32,3 +32,10 @@ An observation:
 Before the execution of manifold, the number of 1s logged in manifold is 50999. This represents the number of 1s in the input image.
 However, after the 1st time execution, the number of 1s are dropped to 15465, this shouldn't happen because the 1s in the image should still **PERSIST** in the manifold, which is not the case.
 Hence there is something wrong with the manifold. Need to investigate why the number of 1s are dropped.
+
+----------
+2026-05-01 v0.2:
+After image loading fix, signal 1s persist in the manifold now. This is a very important advancement!!!
+Next step is to update the feedback loop feature allowing the manifold to be evolved to the correct output behavior.
+
+The manifold loading/saving feature is in place now.
