@@ -55,6 +55,7 @@ int32_t OUTPUT_SIZE = 1000; // Let's do 1000 different categories.
 
 std::string IMAGE_PATH = "test_image.png";
 
+// Following 2 variables can be re-calculated during image loading.
 int32_t IDX_DIMENSION_0_RANGE = IMAGE_HEIGHT * IMAGE_WIDTH / 2;
 int32_t IDX_DIMENSION_1_RANGE = (1 << (ADDR_BITS - 1)) + IDX_DIMENSION_0_RANGE; // 2^(ADDR_BITS - 1) + Range
 
@@ -163,7 +164,7 @@ int32_t update_k_and_direction_within_word(int32_t word) {
 
 bool is_input_range(int32_t index) {
   if ((index >= 0 && index < IDX_DIMENSION_0_RANGE) ||
-      (index >= (1 << (ADDR_BITS - 1)) && index < IDX_DIMENSION_1_RANGE)) {
+      (index >= (global_array.size() / 2) && index < IDX_DIMENSION_1_RANGE)) {
       return true;
   }
   return false;
@@ -308,6 +309,8 @@ void load_image_to_manifold(int32_t input_range) {
       }
     }
   }
+  IDX_DIMENSION_0_RANGE = idx_dimension0 + 1;
+  IDX_DIMENSION_1_RANGE = idx_dimension1 + 1;
   return;
 }
 // ========== End of Image Loading =============
