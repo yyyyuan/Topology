@@ -16,6 +16,7 @@ Format:
 --------------------------------------
 
 For each value in integer format, there are 16 different changes it could be.
+k has 5 bits, in theory its maximum value is 31.
 */
 
 // ============ Constants ============
@@ -447,6 +448,21 @@ void shuffle() {
   std::shuffle(index_array.begin(), index_array.end(), g);
 }
 
+// Randomly select a value between 0 and 21. Used in global_array initialization.
+// Currently the maximum value of k should be 21, to align with the hybercube dimension (22).
+uint8_t random_generate_k() {
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> dist(0, 21);
+    return static_cast<uint8_t>(dist(rng));
+}
+
+// Randomly select a direction of the next k change. Used in global_array initialization.
+uint8_t random_generate_direction() {
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> dist(0, 1);
+    return static_cast<uint8_t>(dist(rng));
+}
+
 // ========== End of Index Array Randomization =======
 
 // ========== Manifold Loading & Saving =========
@@ -484,6 +500,7 @@ int main(int argc, char* argv[])
 {
   bool use_save_data = false;
   int32_t maximum_runs = 10;
+  bool need_init = false;
   for (int i = 1; i < argc; ++i) {
       std::string arg = argv[i];
       if (arg == "--use_save_data") {
@@ -492,10 +509,12 @@ int main(int argc, char* argv[])
       if (arg == "--runs" && i + 1 < argc) {
         maximum_runs = static_cast<int32_t>(std::atoi(argv[++i]));
       }
+      if (arg == "--init") {
+        need_init = true;
+      }
   }
 
   // Init the global_array.
-  bool need_init = false;
   if (use_save_data) {
     need_init = !load_manifold(global_array, MANIFOLD_PATH);
   }
@@ -503,7 +522,7 @@ int main(int argc, char* argv[])
 
   for (int i = 0; i < (1 << ADDR_BITS); i++) {
     if (need_init) {
-      global_array[i] = pack_word(i, 0, 0, 1, 0);
+      global_array[i] = pack_word(i, 0, random_generate_k(), random_generate_direction(), 0);
     }
     cycle_delays_array[i] = 7;  // Start with maximum cycle delay when the connection strength is 0.
     index_array[i] = i;
@@ -540,7 +559,7 @@ int main(int argc, char* argv[])
   //       This behavior only exists in nodeds in manifold, allowing inputs to be a constant stream of 1s if necessary.
   //       The output nodes still follow non-linearity behavior, so it outputs are still a constant flip of 0/1s.
 
-  shuffle();  // Do a shuffle before the execution!
+  // shuffle();  // Do a shuffle before the execution!
   int count = 0;
   pre_run_summary();
   while (count++ < maximum_runs) {
@@ -562,7 +581,7 @@ int main(int argc, char* argv[])
         int32_t counter = unpack_counter(updated_word);
         // Only 1->0 is recognized as a fire signal.
         // bool fire_output_signal = pred_category != previous_prediction;
-        bool fire_output_signal = counter == 2;  // The connection strength represents the output signal.
+        bool fire_output_signal = counter >= 2;  // The connection strength represents the output signal.
 
         // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
         int32_t offset = global_array_index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
@@ -581,7 +600,7 @@ int main(int argc, char* argv[])
           printf("offset 247: %d\n", pred_category);
           output_category_correctness[offset] += 1;
           // is_output_category_matching += output_category_correctness[offset];
-          is_output_category_matching += 1;
+          is_output_category_matching += 5;
           is_prediction_hit = true;
         }
         else if ((offset == 427 && !fire_output_signal)) {
@@ -591,10 +610,11 @@ int main(int argc, char* argv[])
           output_category_correctness[offset] = std::max(0, output_category_correctness[offset]);
           // is_output_category_matching += output_category_correctness[offset];
           is_output_category_matching--;
+          is_output_category_matching = std::max(0, is_output_category_matching);
           count_of_wrong_guesses++;  
         }
         else if (offset != 427 && fire_output_signal) {
-          is_output_category_matching--;
+          is_output_category_matching += 0;
           is_output_category_matching = std::max(0, is_output_category_matching);
           count_of_wrong_guesses++;  
         }
@@ -621,7 +641,7 @@ int main(int argc, char* argv[])
     // }
 
     init_reaction_signal = 1 - init_reaction_signal;
-    // load_image_to_manifold(is_output_category_matching);  // Control the input range after evaluation.
+    load_image_to_manifold(std::max(10, is_output_category_matching));  // Control the input range after evaluation. Always have 10 pixels as base inputs.
     printf("predictions made: %d\n", predictions_made);
     printf("next round input range: %d\n", is_output_category_matching);
     predictions_made = 0;  // Reset the predictions_made.
@@ -634,11 +654,10 @@ int main(int argc, char* argv[])
     summary(cm);
     pred_labels.assign(OUTPUT_SIZE, 0);
     cm = create_confusion_matrix(OUTPUT_SIZE);
-    shuffle();  // Shuffle the order of nodes to execute in the next run!
+    // shuffle();  // Shuffle the order of nodes to execute in the next run!
   // TODO: Migrate the function into GPU and see if magic happens!
   }
 
-  if (use_save_data) {
-    save_manifold(global_array, MANIFOLD_PATH, DEBUG_PATH);
-  }
+  // Always save the gloab_array.
+  save_manifold(global_array, MANIFOLD_PATH, DEBUG_PATH);
 }

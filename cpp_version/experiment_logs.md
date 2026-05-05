@@ -39,3 +39,10 @@ After image loading fix, signal 1s persist in the manifold now. This is a very i
 Next step is to update the feedback loop feature allowing the manifold to be evolved to the correct output behavior.
 
 The manifold loading/saving feature is in place now.
+
+2026-05-05 v0.3:
+Temporarily stop using random ordering of global_array because it genereates too much noises.
+Switch back to order loop, and start initializing global_array with random k and directions.
+Create a simple scaffolding back propagation out of the hypercube manifold - With correct predictions, more image inputs can be consumed by the manifold.
+The manifold starts generating outputs, even though it's wrong - This is a good sign that the internal shape of manifold can be changed by different patterns of inputs.
+Next step is to find a good way of controlling the manifold shape evolvement.
