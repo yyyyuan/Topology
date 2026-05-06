@@ -247,7 +247,7 @@ int32_t heartbeat(int32_t w) {
   // TODO: Remove the prohibition of self-pulling synchronization between two nodoes where two connections only connect with each other.
   //       This will be replaced by random ordering in single thread CPU mode.
   //       && (address == target_of_neighbor)
-  if (strength == 0) {
+  if (strength == 0 && (address == target_of_neighbor)) {
     strength = 0;
     // printf("k, direction before change: %d, %d\n", k, direction);
     decide_k_and_dirction(k, direction);
@@ -641,9 +641,10 @@ int main(int argc, char* argv[])
     // }
 
     init_reaction_signal = 1 - init_reaction_signal;
-    load_image_to_manifold(std::max(10, is_output_category_matching));  // Control the input range after evaluation. Always have 10 pixels as base inputs.
+    int32_t next_round_input_range = std::max(10, is_output_category_matching);
+    load_image_to_manifold(next_round_input_range);  // Control the input range after evaluation. Always have 10 pixels as base inputs.
     printf("predictions made: %d\n", predictions_made);
-    printf("next round input range: %d\n", is_output_category_matching);
+    printf("next round input range: %d\n", next_round_input_range);
     predictions_made = 0;  // Reset the predictions_made.
     is_output_category_matching = 0;  // Reset the output evaluation.
 
