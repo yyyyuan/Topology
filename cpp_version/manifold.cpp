@@ -247,8 +247,9 @@ int32_t heartbeat(int32_t w) {
   // TODO: Remove the prohibition of self-pulling synchronization between two nodoes where two connections only connect with each other.
   //       This will be replaced by random ordering in single thread CPU mode.
   //       && (address == target_of_neighbor)
-  if (strength == 0 && (address == target_of_neighbor)) {
-    strength = 0;
+  if (strength == 0) {
+    strength = 1;
+    self_state = 1;
     // printf("k, direction before change: %d, %d\n", k, direction);
     decide_k_and_dirction(k, direction);
     // printf("k, direction after change: %d, %d\n", k, direction);
@@ -281,20 +282,20 @@ void load_image_to_manifold(int32_t input_range) {
 
       for (int bit_pos = 7; bit_pos >= 0; bit_pos--) {
         if (is_dimension_0) {
-          global_array[idx_dimension0] = pack_word(idx_dimension0, 0, 0, 1, (r >> bit_pos) & 1);
+          global_array[idx_dimension0] = pack_word(idx_dimension0, 1, 0, 1, (r >> bit_pos) & 1);
           idx_dimension0++;
         } else {
-          global_array[idx_dimension1] = pack_word(idx_dimension1, 0, 0, 1, (r >> bit_pos) & 1);
+          global_array[idx_dimension1] = pack_word(idx_dimension1, 1, 0, 1, (r >> bit_pos) & 1);
           idx_dimension1++;
         }
       }
 
       for (int bit_pos = 7; bit_pos >= 0; bit_pos--) {
         if (is_dimension_0) {
-          global_array[idx_dimension0] = pack_word(idx_dimension0, 0, 0, 1, (g >> bit_pos) & 1);
+          global_array[idx_dimension0] = pack_word(idx_dimension0, 1, 0, 1, (g >> bit_pos) & 1);
           idx_dimension0++;
         } else {
-          global_array[idx_dimension1] = pack_word(idx_dimension1, 0, 0, 1, (g >> bit_pos) & 1);
+          global_array[idx_dimension1] = pack_word(idx_dimension1, 1, 0, 1, (g >> bit_pos) & 1);
           idx_dimension1++;
         }
       }
@@ -520,9 +521,10 @@ int main(int argc, char* argv[])
   }
   printf("Do we need to re-init manifold array: %d\n", need_init);
 
+  // Initialize the global_array
   for (int i = 0; i < (1 << ADDR_BITS); i++) {
     if (need_init) {
-      global_array[i] = pack_word(i, 0, random_generate_k(), random_generate_direction(), 0);
+      global_array[i] = pack_word(i, 8, random_generate_k(), random_generate_direction(), 1);
     }
     cycle_delays_array[i] = 7;  // Start with maximum cycle delay when the connection strength is 0.
     index_array[i] = i;
@@ -559,7 +561,7 @@ int main(int argc, char* argv[])
   //       This behavior only exists in nodeds in manifold, allowing inputs to be a constant stream of 1s if necessary.
   //       The output nodes still follow non-linearity behavior, so it outputs are still a constant flip of 0/1s.
 
-  // shuffle();  // Do a shuffle before the execution!
+  shuffle();  // Do a shuffle before the execution!
   int count = 0;
   pre_run_summary();
   while (count++ < maximum_runs) {
@@ -581,7 +583,7 @@ int main(int argc, char* argv[])
         int32_t counter = unpack_counter(updated_word);
         // Only 1->0 is recognized as a fire signal.
         // bool fire_output_signal = pred_category != previous_prediction;
-        bool fire_output_signal = counter >= 2;  // The connection strength represents the output signal.
+        bool fire_output_signal = counter >= 4;  // The connection strength represents the output signal.
 
         // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
         int32_t offset = global_array_index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
@@ -655,7 +657,7 @@ int main(int argc, char* argv[])
     summary(cm);
     pred_labels.assign(OUTPUT_SIZE, 0);
     cm = create_confusion_matrix(OUTPUT_SIZE);
-    // shuffle();  // Shuffle the order of nodes to execute in the next run!
+    shuffle();  // Shuffle the order of nodes to execute in the next run!
   // TODO: Migrate the function into GPU and see if magic happens!
   }
 
