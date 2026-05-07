@@ -46,3 +46,7 @@ Switch back to order loop, and start initializing global_array with random k and
 Create a simple scaffolding back propagation out of the hypercube manifold - With correct predictions, more image inputs can be consumed by the manifold.
 The manifold starts generating outputs, even though it's wrong - This is a good sign that the internal shape of manifold can be changed by different patterns of inputs.
 Next step is to find a good way of controlling the manifold shape evolvement.
+
+2026-05-07 v0.4:
+New changes on manifold initialization with a minimum strength & try to initialize a super-conductor manifold at very beginning and collapse it in following steps.
+This mimics the quantum mechanics and the BigBang (super-conductor manifold in initialization)
