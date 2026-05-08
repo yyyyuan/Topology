@@ -7,6 +7,9 @@
 #include <numeric>   // For std::iota
 #include <string>
 #include <fstream>
+#include <execution> // Required for parallel policies
+#include <omp.h> // Header for OpenMP functions
+#include <atomic>
 
 /*
 Format:
@@ -248,7 +251,7 @@ int32_t heartbeat(int32_t w) {
   //       This will be replaced by random ordering in single thread CPU mode.
   //       && (address == target_of_neighbor)
   if (strength == 0) {
-    strength = 1;
+    strength = 1;  // Base counter is set to 1 instead of 0 to achieve the "active vacuum" idea.
     self_state = 1;
     // printf("k, direction before change: %d, %d\n", k, direction);
     decide_k_and_dirction(k, direction);
@@ -537,8 +540,8 @@ int main(int argc, char* argv[])
   std::vector<int32_t> true_labels(OUTPUT_SIZE);
   std::vector<int32_t> pred_labels(OUTPUT_SIZE);
 
-  int32_t is_output_category_matching = 0;
-  int32_t predictions_made = 0;
+  std::atomic<int32_t> is_output_category_matching = 0;
+  std::atomic<int32_t> predictions_made = 0;
   std::vector<int32_t> output_category_correctness(IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START);
   bool is_prediction_hit = false; // True if the correct prediction is made.
 
@@ -561,11 +564,15 @@ int main(int argc, char* argv[])
   //       This behavior only exists in nodeds in manifold, allowing inputs to be a constant stream of 1s if necessary.
   //       The output nodes still follow non-linearity behavior, so it outputs are still a constant flip of 0/1s.
 
-  shuffle();  // Do a shuffle before the execution!
+  // shuffle();  // Do a shuffle before the execution!
   int count = 0;
   pre_run_summary();
   while (count++ < maximum_runs) {
+    #pragma omp parallel for
     for (int index = 0; index < n; index++) {
+      if (index == 0) {
+        std::cout << "Running with " << omp_get_num_threads() << " threads." << std::endl;
+      }
       int32_t global_array_index = index_array[index];
       if (is_input_range(global_array_index)) {
         // Increment over input nodes, which don't pull signals from other nodes.
@@ -612,12 +619,12 @@ int main(int argc, char* argv[])
           output_category_correctness[offset] = std::max(0, output_category_correctness[offset]);
           // is_output_category_matching += output_category_correctness[offset];
           is_output_category_matching--;
-          is_output_category_matching = std::max(0, is_output_category_matching);
+          is_output_category_matching = std::max(0, is_output_category_matching.load());
           count_of_wrong_guesses++;  
         }
         else if (offset != 427 && fire_output_signal) {
           is_output_category_matching += 0;
-          is_output_category_matching = std::max(0, is_output_category_matching);
+          is_output_category_matching = std::max(0, is_output_category_matching.load());
           count_of_wrong_guesses++;  
         }
 
@@ -643,9 +650,9 @@ int main(int argc, char* argv[])
     // }
 
     init_reaction_signal = 1 - init_reaction_signal;
-    int32_t next_round_input_range = std::max(10, is_output_category_matching);
+    int32_t next_round_input_range = std::max(10, is_output_category_matching.load());
     load_image_to_manifold(next_round_input_range);  // Control the input range after evaluation. Always have 10 pixels as base inputs.
-    printf("predictions made: %d\n", predictions_made);
+    printf("predictions made: %d\n", predictions_made.load());
     printf("next round input range: %d\n", next_round_input_range);
     predictions_made = 0;  // Reset the predictions_made.
     is_output_category_matching = 0;  // Reset the output evaluation.
@@ -657,7 +664,7 @@ int main(int argc, char* argv[])
     summary(cm);
     pred_labels.assign(OUTPUT_SIZE, 0);
     cm = create_confusion_matrix(OUTPUT_SIZE);
-    shuffle();  // Shuffle the order of nodes to execute in the next run!
+    // shuffle();  // Shuffle the order of nodes to execute in the next run!
   // TODO: Migrate the function into GPU and see if magic happens!
   }
 
