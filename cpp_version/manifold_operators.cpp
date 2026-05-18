@@ -91,14 +91,6 @@ int32_t update_k_and_direction_within_word(int32_t word) {
     return word & K_MASK_IN_WORD & DIRECTION_MASK_IN_WORD | ((k & MASK_K) << SHIFT_K) | ((direction & MASK_DIR) << SHIFT_DIR);
 }
 
-bool is_input_range(int32_t index) {
-  if ((index >= 0 && index < IDX_DIMENSION_0_RANGE) ||
-      (index >= (global_array.size() / 2) && index < IDX_DIMENSION_1_RANGE)) {
-      return true;
-  }
-  return false;
-}
-
 bool is_output_range(int32_t index) {
   if (index >= ((1 << ADDR_BITS) - OUTPUT_SIZE) && (index < (1 << ADDR_BITS))) {
     return true;

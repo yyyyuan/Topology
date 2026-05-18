@@ -31,6 +31,11 @@ k has 5 bits, in theory its maximum value is 31.
 // =============== End of Word Related Operators ==========
 
 // ============ Image loading ===============
+// Following 2 variables can be re-calculated during image loading.
+int32_t IDX_DIMENSION_0_RANGE = IMAGE_HEIGHT * IMAGE_WIDTH / 2;
+int32_t IDX_DIMENSION_1_RANGE = (1 << (ADDR_BITS - 1)) + IDX_DIMENSION_0_RANGE; // 2^(ADDR_BITS - 1) + Range
+
+
 // This function currently only loads one image into manifold.
 // Hence signals in input nodes don't need to change.
 // TODO: Upgrade this function so it can read tons of data from sources such as ImageNet.
@@ -86,6 +91,15 @@ void load_image_to_manifold(int32_t input_range) {
   IDX_DIMENSION_1_RANGE = idx_dimension1 + 1;
   return;
 }
+
+bool is_input_range(int32_t index) {
+  if ((index >= 0 && index < IDX_DIMENSION_0_RANGE) ||
+      (index >= (global_array.size() / 2) && index < IDX_DIMENSION_1_RANGE)) {
+      return true;
+  }
+  return false;
+}
+
 // ========== End of Image Loading =============
 
 // ========== Error Rate Calcualtions ==========

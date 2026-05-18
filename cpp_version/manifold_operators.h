@@ -1,3 +1,6 @@
+#ifndef _MANIFOLD_OPERATORS_H_
+#define _MANIFOLD_OPERATORS_H_
+
 // This file defines all operatoros related to words inside the manifold.
 
 #include <cstdint>  // Required for int32_t
@@ -32,8 +35,6 @@ void decide_k_and_dirction(int32_t& k, int32_t& direction);
 
 int32_t update_k_and_direction_within_word(int32_t word);
 
-bool is_input_range(int32_t index);
-
 bool is_output_range(int32_t index);
 
 // The range where inputs are decided by outputs of manifold.
@@ -42,3 +43,5 @@ bool is_reaction_range(int32_t index);
 // ============================== //
 // The heartbeat function is the core of algorithm.
 int32_t heartbeat(int32_t w);
+
+#endif

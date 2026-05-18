@@ -1,3 +1,6 @@
+#ifndef _CONSTANTS_H_
+#define _CONSTANTS_H_
+
 #include <cstdint>  // Required for int32_t
 #include <string>
 
@@ -36,11 +39,7 @@ inline constexpr int32_t BITS_PER_CHANNEL = 8;
 inline constexpr int32_t INPUT_SIZE = IMAGE_WIDTH * IMAGE_HEIGHT * CHANNELS * BITS_PER_CHANNEL;  // 98304 = 64 * 64 * 3 * 8 bits for one image.
 inline constexpr int32_t OUTPUT_SIZE = 1000; // Let's do 1000 different categories.
 
-std::string IMAGE_PATH = "test_image.png";
-
-// Following 2 variables can be re-calculated during image loading.
-inline constexpr int32_t IDX_DIMENSION_0_RANGE = IMAGE_HEIGHT * IMAGE_WIDTH / 2;
-inline constexpr int32_t IDX_DIMENSION_1_RANGE = (1 << (ADDR_BITS - 1)) + IDX_DIMENSION_0_RANGE; // 2^(ADDR_BITS - 1) + Range
+inline const std::string IMAGE_PATH = "test_image.png";
 
 // The range of Reaction must be larger than 2024 and out of input dimension range.
 // The maximum range means there is very long history of correct predictions.
@@ -48,5 +47,7 @@ inline constexpr int32_t IDX_REACTION_RANGE_START = 100000;
 inline constexpr int32_t IDX_REACTION_RANGE_END = 101000;
 
 // ========== Manifold file ========
-std::string MANIFOLD_PATH = "manifold.txt";
-std::string DEBUG_PATH = "debug.txt";
+inline const std::string MANIFOLD_PATH = "manifold.txt";
+inline const std::string DEBUG_PATH = "debug.txt";
+
+#endif
