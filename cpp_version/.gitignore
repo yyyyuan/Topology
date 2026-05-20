@@ -1,8 +1,9 @@
 # Ignore txt files since they can be very huge.
 *.txt
 
-# Ignore executable files.
+# Ignore executable and objective files.
 *.out
+*.o
 
 # The output `manifold` executable file is to be ignored.
 manifold
