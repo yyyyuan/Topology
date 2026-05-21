@@ -30,6 +30,17 @@ For each value in integer format, there are 16 different changes it could be.
 k has 5 bits, in theory its maximum value is 31.
 */
 
+// ========= Global variables ========
+std::atomic<int32_t> is_output_category_matching = 0;
+std::atomic<int32_t> predictions_made = 0;
+std::vector<int32_t> output_category_correctness(IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START);
+bool is_prediction_hit = false; // True if the correct prediction is made.
+int32_t init_prediction_sngal = 0; // The signal used to indicate if this is a good prediction.
+int32_t init_reaction_signal = 1;  // The reaction signal stream is totally flipped in each heartbeat.
+std::vector<int32_t> prediction_signals(OUTPUT_SIZE);
+
+// =======
+
 // ========== Operators related to words =========
 
 // =============== End of Word Related Operators ==========
@@ -153,6 +164,10 @@ void pre_run_summary() {
   printf("=======\n PreRun Active node count: {%d} \n=======\n", calcualte_active_nodoes());
 }
 
+ConfusionMatrix cm = create_confusion_matrix(OUTPUT_SIZE);
+std::vector<int32_t> true_labels(OUTPUT_SIZE);
+std::vector<int32_t> pred_labels(OUTPUT_SIZE);
+
 // ========== End of Error Rate Calculations ===
 
 // ========== Index Array Randomization =======
@@ -182,6 +197,79 @@ uint8_t random_generate_direction() {
 }
 
 // ========== End of Index Array Randomization =======
+
+// ========== Execution Functions ===========
+void execute(int32_t index) {
+  if (index == 0) {
+    #ifdef _OPENMP
+      std::cout << "Running with " << omp_get_num_threads() << " threads." << std::endl;
+    #endif
+  }
+  int32_t global_array_index = index_array[index];
+  if (is_input_range(global_array_index)) {
+    // Increment over input nodes, which don't pull signals from other nodes.
+    return;
+  }
+
+  // The core calculation.
+  int32_t current_word = global_array[global_array_index];
+  int32_t updated_word = heartbeat(current_word);
+  global_array[global_array_index] = updated_word;
+
+  if (is_output_range(global_array_index)) {
+    int32_t previous_prediction = unpack_state(current_word);
+    int32_t pred_category = unpack_state(updated_word);
+    int32_t counter = unpack_counter(updated_word);
+    // Only 1->0 is recognized as a fire signal.
+    // bool fire_output_signal = pred_category != previous_prediction;
+    bool fire_output_signal = counter >= 4;  // The connection strength represents the output signal.
+
+    // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
+    int32_t offset = global_array_index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
+    if (fire_output_signal) {
+      predictions_made++;
+    }
+
+    int32_t prediction_made = pred_category;
+    if (prediction_signals[offset] != pred_category) {
+      prediction_made = 1;
+      prediction_signals[offset] = 1 - prediction_signals[offset];
+    }
+
+    int32_t count_of_wrong_guesses = 0;
+    if (offset == 427 && fire_output_signal) {
+      printf("offset 247: %d\n", pred_category);
+      output_category_correctness[offset] += 1;
+      // is_output_category_matching += output_category_correctness[offset];
+      is_output_category_matching += 5;
+      is_prediction_hit = true;
+    }
+    else if ((offset == 427 && !fire_output_signal)) {
+      // output_category_correctness[offset]--;      
+      printf("offset 247: %d\n", pred_category);
+      output_category_correctness[offset]--;
+      output_category_correctness[offset] = std::max(0, output_category_correctness[offset]);
+      // is_output_category_matching += output_category_correctness[offset];
+      is_output_category_matching--;
+      is_output_category_matching = std::max(0, is_output_category_matching.load());
+      count_of_wrong_guesses++;  
+    }
+    else if (offset != 427 && fire_output_signal) {
+      is_output_category_matching += 0;
+      is_output_category_matching = std::max(0, is_output_category_matching.load());
+      count_of_wrong_guesses++;  
+    }
+
+    // A constant 1->0->1 or 0->1->1 represent the prediction.
+    pred_labels[offset] = int(fire_output_signal);
+    cm.num_samples++;
+  }
+  // if (index % 100000 == 0) {
+  //   printf("index: %d \n", index);
+  // }
+}
+
+// ========== End of Execution Functions ==========
 
 int main(int argc, char* argv[])
 {
@@ -229,21 +317,9 @@ int main(int argc, char* argv[])
 
   int32_t n = 1 << ADDR_BITS;
 
-  ConfusionMatrix cm = create_confusion_matrix(OUTPUT_SIZE);
-  std::vector<int32_t> true_labels(OUTPUT_SIZE);
-  std::vector<int32_t> pred_labels(OUTPUT_SIZE);
-
-  std::atomic<int32_t> is_output_category_matching = 0;
-  std::atomic<int32_t> predictions_made = 0;
-  std::vector<int32_t> output_category_correctness(IDX_REACTION_RANGE_END - IDX_REACTION_RANGE_START);
-  bool is_prediction_hit = false; // True if the correct prediction is made.
-
   // For one single image, there is only 1 matching category out of all 1000 categories.
   // TODO: Eventually this should be modified by datasets, instead of being hardcoded.
   true_labels[427] = 1;
-  std::vector<int32_t> prediction_signals(OUTPUT_SIZE);
-  int32_t init_prediction_sngal = 0; // The signal used to indicate if this is a good prediction.
-  int32_t init_reaction_signal = 1;  // The reaction signal stream is totally flipped in each heartbeat.
 
   // TODO: The manifold is able to accept arbitrary signals other than standard image inputs.
   //       Those arbitrary signals are vital to evolve the manifold to generate expected outputs.
@@ -263,73 +339,7 @@ int main(int argc, char* argv[])
   while (count++ < maximum_runs) {
     #pragma omp parallel for
     for (int index = 0; index < n; index++) {
-      if (index == 0) {
-        #ifdef _OPENMP
-          std::cout << "Running with " << omp_get_num_threads() << " threads." << std::endl;
-        #endif
-      }
-      int32_t global_array_index = index_array[index];
-      if (is_input_range(global_array_index)) {
-        // Increment over input nodes, which don't pull signals from other nodes.
-        continue;
-      }
-
-      // The core calculation.
-      int32_t current_word = global_array[global_array_index];
-      int32_t updated_word = heartbeat(current_word);
-      global_array[global_array_index] = updated_word;
-
-      if (is_output_range(global_array_index)) {
-        int32_t previous_prediction = unpack_state(current_word);
-        int32_t pred_category = unpack_state(updated_word);
-        int32_t counter = unpack_counter(updated_word);
-        // Only 1->0 is recognized as a fire signal.
-        // bool fire_output_signal = pred_category != previous_prediction;
-        bool fire_output_signal = counter >= 4;  // The connection strength represents the output signal.
-
-        // The offset of prediction array is (2**ADDR_BITS - OUTPUT_SIZE)
-        int32_t offset = global_array_index - ((1 << ADDR_BITS) - OUTPUT_SIZE);
-        if (fire_output_signal) {
-          predictions_made++;
-        }
-
-        int32_t prediction_made = pred_category;
-        if (prediction_signals[offset] != pred_category) {
-          prediction_made = 1;
-          prediction_signals[offset] = 1 - prediction_signals[offset];
-        }
-
-        int32_t count_of_wrong_guesses = 0;
-        if (offset == 427 && fire_output_signal) {
-          printf("offset 247: %d\n", pred_category);
-          output_category_correctness[offset] += 1;
-          // is_output_category_matching += output_category_correctness[offset];
-          is_output_category_matching += 5;
-          is_prediction_hit = true;
-        }
-        else if ((offset == 427 && !fire_output_signal)) {
-          // output_category_correctness[offset]--;      
-          printf("offset 247: %d\n", pred_category);
-          output_category_correctness[offset]--;
-          output_category_correctness[offset] = std::max(0, output_category_correctness[offset]);
-          // is_output_category_matching += output_category_correctness[offset];
-          is_output_category_matching--;
-          is_output_category_matching = std::max(0, is_output_category_matching.load());
-          count_of_wrong_guesses++;  
-        }
-        else if (offset != 427 && fire_output_signal) {
-          is_output_category_matching += 0;
-          is_output_category_matching = std::max(0, is_output_category_matching.load());
-          count_of_wrong_guesses++;  
-        }
-
-        // A constant 1->0->1 or 0->1->1 represent the prediction.
-        pred_labels[offset] = int(fire_output_signal);
-        cm.num_samples++;
-      }
-      // if (index % 100000 == 0) {
-      //   printf("index: %d \n", index);
-      // }
+      execute(index);
     }
 
     // After each round of calculation, decide the scale of correct prediction stimulation.
