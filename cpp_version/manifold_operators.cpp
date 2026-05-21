@@ -88,7 +88,7 @@ int32_t update_k_and_direction_within_word(int32_t word) {
 
     decide_k_and_dirction(k, direction);
 
-    return word & K_MASK_IN_WORD & DIRECTION_MASK_IN_WORD | ((k & MASK_K) << SHIFT_K) | ((direction & MASK_DIR) << SHIFT_DIR);
+    return (word & K_MASK_IN_WORD & DIRECTION_MASK_IN_WORD) | ((k & MASK_K) << SHIFT_K) | ((direction & MASK_DIR) << SHIFT_DIR);
 }
 
 bool is_output_range(int32_t index) {

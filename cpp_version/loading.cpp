@@ -1,5 +1,9 @@
 #include "loading.h"
 
+#include <string>
+#include <vector>
+#include <fstream>
+
 int32_t IDX_DIMENSION_0_RANGE = IMAGE_HEIGHT * IMAGE_WIDTH / 2;
 int32_t IDX_DIMENSION_1_RANGE = (1 << (ADDR_BITS - 1)) + IDX_DIMENSION_0_RANGE; // 2^(ADDR_BITS - 1) + Range
 
@@ -67,3 +71,34 @@ bool is_input_range(int32_t index) {
   }
   return false;
 }
+
+// ========== Manifold Loading & Saving =========
+bool save_manifold(const std::vector<int32_t>& manifold_array, const std::string& filepath, const std::string& debug_filepath) {
+    std::ofstream out(filepath, std::ios::out | std::ios::trunc);
+    std::ofstream debug(debug_filepath, std::ios::out | std::ios::trunc);
+    if (!out.is_open() || !debug.is_open()) return false;
+    for (int32_t n : manifold_array) {
+        out << n << '\n';
+        debug << std::bitset<32>(static_cast<uint32_t>(n)) << '\n';
+    }
+    return out.good();
+}
+
+bool load_manifold(std::vector<int32_t>& manifold_array, const std::string& filepath) {
+    std::vector<int32_t> input_array;
+    std::ifstream in(filepath);
+    if (!in.is_open()) return false;
+    double value;
+    while (in >> value) {
+        input_array.push_back(value);
+    }
+
+    if (input_array.size() != (1 << ADDR_BITS)) {
+      return false;
+    }
+
+    manifold_array = std::move(input_array);
+    return true;
+}
+
+// ========== End of Manifold Loading & Saving ============

@@ -34,10 +34,6 @@ k has 5 bits, in theory its maximum value is 31.
 
 // =============== End of Word Related Operators ==========
 
-// ============ Image loading ===============
-
-// ========== End of Image Loading =============
-
 // ========== Error Rate Calcualtions ==========
 
 struct ConfusionMatrix {
@@ -186,37 +182,6 @@ uint8_t random_generate_direction() {
 }
 
 // ========== End of Index Array Randomization =======
-
-// ========== Manifold Loading & Saving =========
-bool save_manifold(const std::vector<int32_t>& manifold_array, const std::string& filepath, const std::string& debug_filepath) {
-    std::ofstream out(filepath, std::ios::out | std::ios::trunc);
-    std::ofstream debug(debug_filepath, std::ios::out | std::ios::trunc);
-    if (!out.is_open() || !debug.is_open()) return false;
-    for (int32_t n : manifold_array) {
-        out << n << '\n';
-        debug << std::bitset<32>(static_cast<uint32_t>(n)) << '\n';
-    }
-    return out.good();
-}
-
-bool load_manifold(std::vector<int32_t>& manifold_array, const std::string& filepath) {
-    std::vector<int32_t> input_array;
-    std::ifstream in(filepath);
-    if (!in.is_open()) return false;
-    double value;
-    while (in >> value) {
-        input_array.push_back(value);
-    }
-
-    if (input_array.size() != (1 << ADDR_BITS)) {
-      return false;
-    }
-
-    manifold_array = std::move(input_array);
-    return true;
-}
-
-// ========== End of Manifold Loading & Saving ============
 
 int main(int argc, char* argv[])
 {
