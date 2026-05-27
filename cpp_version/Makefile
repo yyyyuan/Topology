@@ -32,7 +32,9 @@ TARGET   = manifold
 # 3. BUILD RULES
 # ====================================================================
 # Default rule: Compiles clean, standard serial code
-all: $(TARGET)
+all: 
+	@$(MAKE) clean
+	@$(MAKE) $(TARGET)
 
 # FIXED: Separate 'clean' and '$(TARGET)' invocation dynamically.
 # This prevents the double/multiple compilation loop of source files.

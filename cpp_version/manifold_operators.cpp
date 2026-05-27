@@ -151,29 +151,53 @@ int32_t heartbeat(int32_t w) {
     return update_k_and_direction_within_word(w);
   }
 
-  int32_t neighbor_state = unpack_state(neighbor);
-  bool resonate = self_state != neighbor_state;
 
-  if (resonate) {
-      strength = std::min(7, strength + 1);
-      self_state = neighbor_state;
+  // Core logics when the self_state is 0.
+  // 1. self_state = 0, neighbor_state = 1: self_state = 1, connection++
+  // 2. self_state = 0, neighbor_state = 0, connection > 0: self_state = 1, connection--
+  // 3. self_state = 0, neighbor_state = 0, connection = 0: self_state = 0, switch to next neighbor.
+  int32_t neighbor_state = unpack_state(neighbor);
+  // bool resonate = self_state != neighbor_state;
+
+  if (neighbor_state == 1) {
+    // self_state = 0, neighbor_state = 1
+    strength = std::min(7, strength + 1);
+    self_state = neighbor_state;
+  }
+  else if (strength > 0) {
+    // self_state = 0, neighbor_state = 0, connection > 0
+    strength = std::max(0, strength - 1);
+    self_state = 1; // consume connection strength to generate an active self_state.
   }
   else {
-      strength = std::max(0, strength - 1);
-  }
-  cycle_delays_array[address] = 7 - strength;  // Update the cycle_delay for the word based on its connection strength.
-
-  // Change to next index if the counter strength is 0.
-  // TODO: Remove the prohibition of self-pulling synchronization between two nodoes where two connections only connect with each other.
-  //       This will be replaced by random ordering in single thread CPU mode.
-  //       && (address == target_of_neighbor)
-  if (strength == 0) {
+    // self_state = 0, neighbor_state = 0, connection = 0
     strength = 1;  // Base counter is set to 1 instead of 0 to achieve the "active vacuum" idea.
-    self_state = 1;
+    self_state = 0;
     // printf("k, direction before change: %d, %d\n", k, direction);
     decide_k_and_dirction(k, direction);
     // printf("k, direction after change: %d, %d\n", k, direction);
   }
+
+//   if (resonate) {
+//     strength = std::min(7, strength + 1);
+//     self_state = neighbor_state;
+//   }
+//   else {
+//     strength = std::max(0, strength - 1);
+//   }
+//   cycle_delays_array[address] = 7 - strength;  // Update the cycle_delay for the word based on its connection strength.
+
+//   // Change to next index if the counter strength is 0.
+//   // TODO: Remove the prohibition of self-pulling synchronization between two nodoes where two connections only connect with each other.
+//   //       This will be replaced by random ordering in single thread CPU mode.
+//   //       && (address == target_of_neighbor)
+//   if (strength == 0) {
+//     strength = 1;  // Base counter is set to 1 instead of 0 to achieve the "active vacuum" idea.
+//     self_state = 1;
+//     // printf("k, direction before change: %d, %d\n", k, direction);
+//     decide_k_and_dirction(k, direction);
+//     // printf("k, direction after change: %d, %d\n", k, direction);
+//   }
 
   return pack_word(address, strength, k, direction, self_state);
 }

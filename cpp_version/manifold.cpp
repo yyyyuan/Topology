@@ -355,7 +355,7 @@ int main(int argc, char* argv[])
     // }
 
     init_reaction_signal = 1 - init_reaction_signal;
-    int32_t next_round_input_range = std::max(10, is_output_category_matching.load());
+    int32_t next_round_input_range = std::max(5, is_output_category_matching.load());
     load_image_to_manifold(next_round_input_range);  // Control the input range after evaluation. Always have 10 pixels as base inputs.
     printf("predictions made: %d\n", predictions_made.load());
     printf("next round input range: %d\n", next_round_input_range);
