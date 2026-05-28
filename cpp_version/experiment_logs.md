@@ -50,3 +50,7 @@ Next step is to find a good way of controlling the manifold shape evolvement.
 2026-05-07 v0.4:
 New changes on manifold initialization with a minimum strength & try to initialize a super-conductor manifold at very beginning and collapse it in following steps.
 This mimics the quantum mechanics and the BigBang (super-conductor manifold in initialization)
+
+2026-05-28 v0.5:
+The node connections would reach maximum after the manifold evolvement starts. The signals are soaked among everywhere inside the manifold.
+Need too find a way to constraint such explosion development.
