@@ -117,9 +117,21 @@ int32_t calcualte_active_nodoes() {
   return active_state_count;
 }
 
+int32_t calculate_nodes_with_maximum_strength() {
+  int32_t node_count_with_max_strength = 0;
+  for (int32_t word : global_array) {
+    int32_t strength = unpack_counter(word);
+    if (strength == 7) {
+      node_count_with_max_strength++;
+    }
+  }
+  return node_count_with_max_strength;
+}
+
 // F1-score calculation is put in the summary.
 void summary(const ConfusionMatrix& matrix) {
   printf("*** Active node count: {%d} ***\n", calcualte_active_nodoes());
+  printf("*** Count of nodes with maximum strength: {%d} ***\n", calculate_nodes_with_maximum_strength());
 
   int32_t samples = matrix.num_samples;
   float rate = error_rate(matrix);
@@ -199,13 +211,13 @@ uint8_t random_generate_direction() {
 // ========== End of Index Array Randomization =======
 
 // ========== Execution Functions ===========
-void execute(int32_t index) {
+void execute(int32_t global_array_index) {
   if (index == 0) {
     #ifdef _OPENMP
       std::cout << "Running with " << omp_get_num_threads() << " threads." << std::endl;
     #endif
   }
-  int32_t global_array_index = index_array[index];
+  // int32_t global_array_index = index_array[index];
   if (is_input_range(global_array_index)) {
     // Increment over input nodes, which don't pull signals from other nodes.
     return;
@@ -308,7 +320,8 @@ int main(int argc, char* argv[])
   // Initialize the global_array
   for (int i = 0; i < (1 << ADDR_BITS); i++) {
     if (need_init) {
-      global_array[i] = pack_word(i, 8, random_generate_k(), random_generate_direction(), 1);
+      // global_array[i] = pack_word(i, 8, random_generate_k(), random_generate_direction(), 1);
+      global_array[i] = pack_word(/*address=*/i, /*connection=*/0, /*k=*/random_generate_k(), /*direction=*/random_generate_direction(), /*state*/0);
     }
     cycle_delays_array[i] = 7;  // Start with maximum cycle delay when the connection strength is 0.
     index_array[i] = i;

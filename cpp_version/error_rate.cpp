@@ -1,5 +1,8 @@
+#include <cstdint>  // Required for int32_t
+#include <vector>
 
-
+#include "database.h"
+#include "manifold_operators.h"
 
 struct ConfusionMatrix {
   int32_t num_categories;
@@ -71,9 +74,21 @@ int32_t calcualte_active_nodoes() {
   return active_state_count;
 }
 
+int32_t calculate_nodes_with_maximum_strength() {
+  int32_t node_count_with_max_strength = 0;
+  for (int32_t word : global_array) {
+    int32_t strength = unpack_counter(word);
+    if (strength == 7) {
+      node_count_with_max_strength++;
+    }
+  }
+  return node_count_with_max_strength;
+}
+
 // F1-score calculation is put in the summary.
 void summary(const ConfusionMatrix& matrix) {
   printf("*** Active node count: {%d} ***\n", calcualte_active_nodoes());
+  printf("*** Count of nodes with maximum strength: {%d} ***\n", calculate_nodes_with_maximum_strength());
 
   int32_t samples = matrix.num_samples;
   float rate = error_rate(matrix);

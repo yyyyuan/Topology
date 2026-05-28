@@ -141,9 +141,9 @@ int32_t heartbeat(int32_t w) {
 
   // Skip heartbeat over reaction nodes since they will be taken care of separately.
   // TODO: Update cycle delay accordingly, even for output nodes.
-  if (is_reaction_range(address)) {
-    return w;
-  }
+//   if (is_reaction_range(address)) {
+//     return w;
+//   }
 
   // Output node cannot be used as source to pull data from.
   // Instead we update sections k and direction inside the word directly.
@@ -162,7 +162,7 @@ int32_t heartbeat(int32_t w) {
   if (neighbor_state == 1) {
     // self_state = 0, neighbor_state = 1
     strength = std::min(7, strength + 1);
-    self_state = neighbor_state;
+    self_state = 1;
   }
   else if (strength > 0) {
     // self_state = 0, neighbor_state = 0, connection > 0
