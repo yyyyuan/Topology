@@ -1,0 +1,75 @@
+#include "vertex.h"
+
+#include "constants.h"
+
+int32_t calculate_neighbor_address(int32_t neighbor_index, int32_t address)
+{
+    return address ^ (1 << neighbor_index); // Flip the bit at neighbor_index.
+}
+
+void spin(Vertex &vertex)
+{
+    if (vertex.neighbor_index == 0 && vertex.direction != DIR_INCREASE_K) {
+        vertex.direction = DIR_INCREASE_K;
+    }
+    if (vertex.neighbor_index == ADDR_BITS && vertex.direction == DIR_INCREASE_K) {
+        vertex.direction = DIR_DECREASE_K;
+    }
+
+    if (vertex.direction == DIR_INCREASE_K) {
+        vertex.neighbor_index = (vertex.neighbor_index + 1) & MASK_K;
+    }
+    else {
+        vertex.neighbor_index = (vertex.neighbor_index - 1) & MASK_K;
+    }
+
+    return;
+}
+
+void execute(Vertex &vertex)
+{
+    // Reset the refractory period if the vertex is in rest.
+    // Skip current round.
+    if (vertex.excited) {
+        vertex.is_in_refractory_period = false;
+        vertex.excited = false;
+        return;
+    }
+
+    int32_t neighbor_address = vertex.address ^ (1 << vertex.neighbor_index); // Flip the bit at neighbor_index.
+    Vertex neighbor_vertex = hypercube_array[neighbor_address];
+
+    if (neighbor_vertex.excited) {
+        if (neighbor_vertex.internal_state == vertex.internal_state) {
+            vertex.energy++;
+
+            // The vertex becomes excited when it reaches the upper_excite_thresold.
+            if (vertex.energy >= vertex.upper_excite_thresold) {
+                vertex.excited = true;
+                int32_t current_upper_excite_threshold = vertex.upper_excite_thresold;
+                vertex.upper_excite_thresold = vertex.upper_excite_thresold + vertex.lower_excite_thresold;
+                vertex.lower_excite_thresold = current_upper_excite_threshold;
+            }
+        }
+        else {
+            vertex.energy--;
+            if (vertex.energy < vertex.lower_excite_thresold) {
+                int32_t current_lower_excite_threshold = vertex.lower_excite_thresold;
+                vertex.lower_excite_thresold = vertex.upper_excite_thresold - vertex.lower_excite_thresold;
+                vertex.upper_excite_thresold = current_lower_excite_threshold;
+            }
+        }
+    }
+
+    // Flip the internal_state if no energy is left.
+    // The vertex totally collapses!
+    if (vertex.energy == 0) {
+        vertex.internal_state != vertex.internal_state;
+        vertex.energy = 1;  // Reset the vertex energy.
+        vertex.upper_excite_thresold = 2;
+        vertex.lower_excite_thresold = 1;
+    }
+
+    // The vertex spins...
+    spin(vertex);
+}
