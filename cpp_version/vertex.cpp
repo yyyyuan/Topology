@@ -1,6 +1,7 @@
 #include "vertex.h"
 
 #include "constants.h"
+#include "database.h"
 
 int32_t calculate_neighbor_address(int32_t neighbor_index, int32_t address)
 {
@@ -36,6 +37,8 @@ void execute(Vertex &vertex)
         return;
     }
 
+    // For vertex acceptin inputs from outside, there can be a special handling to make neighbr_address not change or only change in a very small range.
+    // In this way, the vertex can keep "spinning" but the spin has no real impact.
     int32_t neighbor_address = vertex.address ^ (1 << vertex.neighbor_index); // Flip the bit at neighbor_index.
     Vertex neighbor_vertex = hypercube_array[neighbor_address];
 
@@ -72,4 +75,8 @@ void execute(Vertex &vertex)
 
     // The vertex spins...
     spin(vertex);
+
+    // For vertex that generates outputs and connecting with the outside world, 2 things can be done:
+    // 1. Control the range the vertex can spin, so it won't pull data from out transimitter vertex.
+    // 2. Add a special way writing outputs into output hardwares (wheel controller, autopilot, microphone etc)
 }

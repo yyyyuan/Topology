@@ -10,10 +10,9 @@
 // The first step to build the new system.
 
 #include <cstdint>  // Required for int32_t
+#include <vector>
 
 #include "constants.h"
-
-extern std::vector<Vertex> hypercube_array;
 
 // The basic unit consisting the hypercube topology.
 // With its immaculate properties a new self-evolving system shows up.

@@ -8,3 +8,5 @@
 std::vector<int32_t> global_array(1 << ADDR_BITS);
 std::vector<int32_t> cycle_delays_array(1 << ADDR_BITS);
 std::vector<int32_t> index_array(1 << ADDR_BITS);
+
+std::vector<Vertex> hypercube_array(1 << ADDR_BITS);

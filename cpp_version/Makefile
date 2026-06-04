@@ -24,9 +24,12 @@ endif
 CXXFLAGS = -std=c++17 -Wall -O3
 LIBS     = 
 
-SRC      = manifold.cpp manifold_operators.cpp database.cpp loading.cpp
+# SRC      = manifold.cpp manifold_operators.cpp database.cpp loading.cpp
+# OBJ      = $(SRC:.cpp=.o)
+# TARGET   = manifold
+SRC      = hypercube.cpp vertex.cpp database.cpp manifold_operators.cpp loading.cpp
 OBJ      = $(SRC:.cpp=.o)
-TARGET   = manifold
+TARGET   = hypercube
 
 # ====================================================================
 # 3. BUILD RULES
