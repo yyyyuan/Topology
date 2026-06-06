@@ -80,3 +80,7 @@ void execute(Vertex &vertex)
     // 1. Control the range the vertex can spin, so it won't pull data from out transimitter vertex.
     // 2. Add a special way writing outputs into output hardwares (wheel controller, autopilot, microphone etc)
 }
+
+void debug(const Vertex& vertex) {
+    printf("\ninternal state is: %d", vertex.internal_state);
+}

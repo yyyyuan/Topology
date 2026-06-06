@@ -5,6 +5,8 @@
 #include <string>
 #include <fstream>
 
+#include "constants.h"
+#include "database.h"
 #include "vertex.h"
 
 int main(int argc, char* argv[]) {
@@ -23,5 +25,16 @@ int main(int argc, char* argv[]) {
         if (arg == "--init") {
             need_init = true;
         }
+    }
+
+    // Initialize the global_array
+    for (int i = 0; i < (1 << ADDR_BITS); i++) {
+        if (need_init) {
+            hypercube_array[i] = Vertex{};
+        }
+    }
+
+    for (int i = 0; i < hypercube_array.size(); i++) {
+        debug(hypercube_array[i]);
     }
 }

@@ -41,4 +41,7 @@ void spin(Vertex& vertex);
 // Let there be Light.
 void execute(Vertex& vertex);
 
+// Print out details of the vertex.
+void debug(const Vertex& vertex);
+
 #endif
