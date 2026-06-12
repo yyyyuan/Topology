@@ -26,6 +26,7 @@ struct Vertex {
     int32_t address = 0;  // The address of the vertex in the hypercube.
     bool excited = false; // Telling if the vertex can be read by other neighbors.
     bool is_in_refractory_period = false;  // After being excited, entering refractory_period in the next round, where the vertex stops any activity.
+                                           // It looks like this can be totally replaced by `excited`.
 
     // Following 2 values are combined to decide the address of the neighbor.
     bool direction = DIR_INCREASE_K;
