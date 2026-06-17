@@ -13,7 +13,7 @@ void spin(Vertex &vertex)
     if (vertex.neighbor_index == 0 && vertex.direction != DIR_INCREASE_K) {
         vertex.direction = DIR_INCREASE_K;
     }
-    if (vertex.neighbor_index == ADDR_BITS && vertex.direction == DIR_INCREASE_K) {
+    if (vertex.neighbor_index == (ADDR_BITS - 1) && vertex.direction == DIR_INCREASE_K) {
         vertex.direction = DIR_DECREASE_K;
     }
 
@@ -37,10 +37,17 @@ void execute(Vertex &vertex)
         return;
     }
 
-    // TODO: For vertex acceptin inputs from outside, there can be a special handling to make neighbr_address not change or only change in a very small range.
-    // In this way, the vertex can keep "spinning" but the spin has no real impact.
-    int32_t neighbor_address = vertex.address ^ (1 << vertex.neighbor_index); // Flip the bit at neighbor_index.
-    Vertex neighbor_vertex = hypercube_array[neighbor_address];
+    Vertex neighbor_vertex;
+    if (vertex.type == VertexType::INPUT) {
+        // This neighbor_vertex is a virtual input vertex representing signals from external world.
+        neighbor_vertex = get_input(vertex);
+    }
+    else {
+        // TODO: For vertex acceptin inputs from outside, there can be a special handling to make neighbr_address not change or only change in a very small range.
+        // In this way, the vertex can keep "spinning" but the spin has no real impact.
+        int32_t neighbor_address = vertex.address ^ (1 << vertex.neighbor_index); // Flip the bit at neighbor_index.
+        neighbor_vertex = hypercube_array.at(neighbor_address);
+    }
 
     // Only pull data from the neighbor_vertex if it's excited.
     if (neighbor_vertex.excited) {
@@ -83,6 +90,11 @@ void execute(Vertex &vertex)
     // The vertex spins...
     spin(vertex);
 
+    // OUTPUT vertexes are responsible for writing data to external world.
+    if (vertex.type == VertexType::OUTPUT) {
+        send_output(vertex);
+    }
+
     // TODO: For vertex that generates outputs and connecting with the outside world, 2 things can be done:
     // 1. Control the range the vertex can spin, so it won't pull data from out transimitter vertex.
     // 2. Add a special way writing outputs into output hardwares (wheel controller, autopilot, microphone etc)
@@ -90,4 +102,33 @@ void execute(Vertex &vertex)
 
 void debug(const Vertex& vertex) {
     printf("\ninternal state is: %d", vertex.internal_state);
+}
+
+Vertex get_input(const Vertex& input_vertex) {
+    Vertex virtual_ipnut_vertex;
+
+    // Only 2 fields are used:
+    // 1. excited
+    // 2. internal_state
+
+    // For now, the VIV is always marked as excited representing continuous stimulations from external world.
+    virtual_ipnut_vertex.excited = true;
+
+    // Copy input signals directly from the input_array following the 1-to-1 address mapping.
+    // TODO: Eventually, the behavior should be more natural, meaning that each vertex is able to listen to multiple input slots,
+    //       instead of focusing on one slot.
+    virtual_ipnut_vertex.internal_state = input_array[input_vertex.address];
+
+    return virtual_ipnut_vertex;
+}
+
+void send_output(const Vertex& output_vertex) {
+    // `100` is a temporary threshold.
+    if (output_vertex.energy >= 2) {
+        // Write a signal into output hardwares.
+        // 2026-06-17: For now assume there is only one output slot.
+        //
+        // When there are more output slots, the output_vertex addresses will be used to decide which vertex writes data to which output slot.
+        output_array[0] = true;
+    }
 }

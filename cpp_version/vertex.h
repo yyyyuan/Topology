@@ -54,4 +54,14 @@ void execute(Vertex &vertex);
 // Print out details of the vertex.
 void debug(const Vertex &vertex);
 
+// Returns a virtual Vertex representing the input signal.
+// This virtual vertex functions with the Input type Vertex inside the hypercube.
+//
+// This is in the format of Vertex so it fits with remaining calls inside `execute()`.
+Vertex get_input(const Vertex& input_vertex);
+
+// Used for OUTPUT vertex only.
+// The OUTPUT vertex will send the signals to output hardwares if it's over the threshold.
+void send_output(const Vertex& output_vertex);
+
 #endif
