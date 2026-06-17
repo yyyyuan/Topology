@@ -21,7 +21,7 @@ void build_input_array() {
 }
 
 // Calculate the count of nodes with state 1 in the hypercube.
-int32_t calcualte_active_vertexes() {
+int32_t analyze_hypercube() {
     std::map<int32_t, int32_t> fibonacci_bucket;
     int32_t active_state_count = 0;
     for (Vertex vertex : hypercube_array) {
@@ -35,11 +35,13 @@ int32_t calcualte_active_vertexes() {
         std::printf("Energy allocation: %d: %d\n", bucket, count);
     }
 
+    // TODO: To better understand hypercube properties, we also want to log the addresses of active vertexes.
+
     return active_state_count;
 }
 
 void record() {
-    printf("*** Active vertex count: {%d} ***\n", calcualte_active_vertexes());
+    printf("*** Active vertex count: {%d} ***\n", analyze_hypercube());
 }
 
 int main(int argc, char *argv[])
