@@ -47,7 +47,7 @@ int32_t analyze_hypercube() {
     static int col_width = 16;
     std::printf("\nHypercube structure in the format of Hammer String");
     std::printf("\n===========\n");
-    std::cout << "| " << std::setw(col_width) << std::left << "Hammer Address"
+    std::cout << "| " << std::setw(col_width) << std::left << "Hammer String"
               << " | " << std::setw(col_width) << std::left << "Minimal Energy"
               << " | " << std::setw(col_width) << std::left << "Maximum Energy"
               << " | " << std::setw(col_width) << std::left << "Count (>= 2)" 
