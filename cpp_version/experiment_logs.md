@@ -54,3 +54,7 @@ This mimics the quantum mechanics and the BigBang (super-conductor manifold in i
 2026-05-28 v0.5:
 The node connections would reach maximum after the manifold evolvement starts. The signals are soaked among everywhere inside the manifold.
 Need too find a way to constraint such explosion development.
+
+2026-06-18 v1.0:
+Hypercube printed out in Hammer String structure clearly shows that each different picture has a very different stable internal structure inside 
+the hypercube. They each have a different fingerprint!
