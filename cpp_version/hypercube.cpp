@@ -20,10 +20,20 @@ void build_input_array() {
     }
 }
 
+struct HammerStringDebugUnit {
+    int32_t min_energy_positive;
+    int32_t max_energy_positive;
+    int32_t count_positive;
+
+    int32_t min_energy_negative;
+    int32_t max_energy_negative;
+    int32_t count_negative;
+};
+
 // Calculate the count of nodes with state 1 in the hypercube.
 int32_t analyze_hypercube() {
     std::map<int32_t, int32_t> fibonacci_bucket;
-    int32_t hypercube_structure[ADDR_BITS+1][3] = {};  // Each layer contains minimal_energy, maximum_energy, number of nodes with energy >= 2.
+    std::vector<HammerStringDebugUnit> hypercube_structure(ADDR_BITS+1);  // Each layer contains minimal_energy, maximum_energy, number of nodes with energy >= 2.
     int32_t active_state_count = 0;
     for (Vertex vertex : hypercube_array) {
         if (vertex.internal_state) {
@@ -33,14 +43,26 @@ int32_t analyze_hypercube() {
 
         // bit counting
         int active_bits = __builtin_popcount(vertex.address);
-        if (hypercube_structure[active_bits][0] == 0) {
-            hypercube_structure[active_bits][0] = vertex.energy;
+        if (hypercube_structure[active_bits].min_energy_positive == 0) {
+            if (vertex.internal_state) {
+                hypercube_structure[active_bits].min_energy_positive = vertex.energy;
+            }
+            else {
+                hypercube_structure[active_bits].min_energy_negative = vertex.energy;
+            }
         }
 
         if (vertex.energy > 1 && vertex.type != VertexType::INPUT) {
-            hypercube_structure[active_bits][0] = std::min(hypercube_structure[active_bits][0], vertex.energy);
-            hypercube_structure[active_bits][1] = std::max(hypercube_structure[active_bits][1], vertex.energy);
-            hypercube_structure[active_bits][2]++;
+            if (vertex.internal_state) {
+                hypercube_structure[active_bits].min_energy_positive = std::min(hypercube_structure[active_bits].min_energy_positive, vertex.energy);
+                hypercube_structure[active_bits].max_energy_positive = std::max(hypercube_structure[active_bits].max_energy_positive, vertex.energy);
+                hypercube_structure[active_bits].count_positive++;
+            }
+            else {
+                hypercube_structure[active_bits].min_energy_negative = std::min(hypercube_structure[active_bits].min_energy_negative, vertex.energy);
+                hypercube_structure[active_bits].max_energy_negative = std::max(hypercube_structure[active_bits].max_energy_negative, vertex.energy);
+                hypercube_structure[active_bits].count_negative++;
+            }
         }
     }
 
@@ -48,15 +70,21 @@ int32_t analyze_hypercube() {
     std::printf("\nHypercube structure in the format of Hammer String");
     std::printf("\n===========\n");
     std::cout << "| " << std::setw(col_width) << std::left << "Hammer String"
-              << " | " << std::setw(col_width) << std::left << "Minimal Energy"
-              << " | " << std::setw(col_width) << std::left << "Maximum Energy"
-              << " | " << std::setw(col_width) << std::left << "Count (>= 2)" 
+              << " | " << std::setw(col_width) << std::left << "Min Energy Pos"
+              << " | " << std::setw(col_width) << std::left << "Max Energy Pos"
+              << " | " << std::setw(col_width) << std::left << "Count (>= 2) Pos" 
+              << " | " << std::setw(col_width) << std::left << "Min Energy Neg"
+              << " | " << std::setw(col_width) << std::left << "Max Energy Neg"
+              << " | " << std::setw(col_width) << std::left << "Count (>= 2) Neg" 
               << " |\n";
     for (int i = 0; i <= ADDR_BITS; ++i) {
         std::cout << "| " << std::setw(col_width) << std::right << i
-                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i][0]
-                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i][1]
-                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i][2] 
+                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i].min_energy_positive
+                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i].max_energy_positive
+                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i].count_positive
+                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i].min_energy_negative
+                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i].max_energy_negative
+                  << " | " << std::setw(col_width) << std::right << hypercube_structure[i].count_negative
                   << " |\n";
     }
     std::printf("===========\n");
