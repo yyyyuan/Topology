@@ -9,14 +9,21 @@
 
 #include "constants.h"
 #include "database.h"
+#include "loading_image.h"
 #include "vertex.h"
 
+// TODO: Now the hypercube should systematically import images into the hypercube.
 void build_input_array() {
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
-            bool t = (x + y) > IMAGE_HEIGHT;
-            input_array[y * IMAGE_WIDTH + x] = t;
-        }
+    // for (int y = 0; y < IMAGE_HEIGHT; y++) {
+    //     for (int x = 0; x < IMAGE_WIDTH; x++) {
+    //         bool t = (x + y) > IMAGE_HEIGHT;
+    //         input_array[y * IMAGE_WIDTH + x] = t;
+    //     }
+    // }
+    std::string image_path = "photo.jpg";
+    if (loadJpegTo64x64Array(image_path, input_array)) {
+        std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
+        std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_array[0] << std::endl;
     }
 }
 
@@ -78,7 +85,7 @@ int32_t analyze_hypercube() {
               << " | " << std::setw(col_width) << std::left << "Count (>= 2) Neg" 
               << " |\n";
     for (int i = 0; i <= ADDR_BITS; ++i) {
-        std::cout << "| " << std::setw(col_width) << std::right << i
+        std::cout << "| " << std::setw(col_width) << std::right << std::dec << i
                   << " | " << std::setw(col_width) << std::right << hypercube_structure[i].min_energy_positive
                   << " | " << std::setw(col_width) << std::right << hypercube_structure[i].max_energy_positive
                   << " | " << std::setw(col_width) << std::right << hypercube_structure[i].count_positive

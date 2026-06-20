@@ -21,13 +21,13 @@ endif
 # 2. CORE BUILD CONFIGURATIONS
 # ====================================================================
 # FIXED: Merged the CXXFLAGS cleanly using += so nothing is overwritten
-CXXFLAGS = -std=c++17 -Wall -O3
+CXXFLAGS = -std=c++17 -Wall -O3 -ljpeg
 LIBS     = 
 
 # SRC      = manifold.cpp manifold_operators.cpp database.cpp loading.cpp
 # OBJ      = $(SRC:.cpp=.o)
 # TARGET   = manifold
-SRC      = hypercube.cpp vertex.cpp database.cpp manifold_operators.cpp loading.cpp
+SRC      = hypercube.cpp vertex.cpp database.cpp manifold_operators.cpp loading.cpp loading_image.cpp
 OBJ      = $(SRC:.cpp=.o)
 TARGET   = hypercube
 

@@ -1,3 +1,5 @@
+#include "loading_image.h"
+
 #include <iostream>
 #include <string>
 #include <cstdint>
@@ -15,7 +17,7 @@ const int TARGET_HEIGHT = 64;
  * @param out_array Reference to the 64x64 destination array.
  * @return true if successful, false otherwise.
  */
-bool loadJpegTo64x64Array(const std::string& filename, int32_t out_array[TARGET_HEIGHT * TARGET_WIDTH]) {
+bool loadJpegTo64x64Array(const std::string& filename, std::vector<int32_t>& out_array) {
     // Open the file using standard C I/O (required by libjpeg)
     FILE* infile = fopen(filename.c_str(), "rb");
     if (!infile) {
@@ -114,13 +116,13 @@ bool loadJpegTo64x64Array(const std::string& filename, int32_t out_array[TARGET_
     return true;
 }
 
-int main() {
-    int32_t pixelGrid[TARGET_HEIGHT * TARGET_WIDTH];
-    std::string path = "photo.jpg";
+// int main() {
+//     int32_t pixelGrid[TARGET_HEIGHT * TARGET_WIDTH];
+//     std::string path = "photo.jpg";
 
-    if (loadJpegTo64x64Array(path, pixelGrid)) {
-        std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
-        std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << pixelGrid[0] << std::endl;
-    }
-    return 0;
-}
+//     if (loadJpegTo64x64Array(path, pixelGrid)) {
+//         std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
+//         std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << pixelGrid[0] << std::endl;
+//     }
+//     return 0;
+// }
