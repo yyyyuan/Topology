@@ -20,11 +20,25 @@ void build_input_array() {
     //         input_array[y * IMAGE_WIDTH + x] = t;
     //     }
     // }
-    std::string image_path = "photo.jpg";
+    std::string image_path = "images/photo.jpg";
     if (loadJpegTo64x64Array(image_path, input_array)) {
         std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
         std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_array[0] << std::endl;
     }
+
+    image_path = "images/photo.jpg";
+    if (loadJpegTo64x64Array(image_path, input_buffer[0])) {
+        std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
+        std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[0][0] << std::endl;
+    }
+
+    image_path = "images/image2.jpg";
+    if (loadJpegTo64x64Array(image_path, input_buffer[1])) {
+        std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
+        std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[1][0] << std::endl;
+    }
+
+    input_array_ptr = &input_buffer[0];
 }
 
 struct HammerStringDebugUnit {
@@ -163,8 +177,14 @@ int main(int argc, char *argv[])
     printf("output_array status before the run: {%d} \n", output_array[0]);
 
     int32_t count = 0;
-    while (count++ < maximum_runs)
+    int32_t input_source_idx = 0;
+    while (count++ < maximum_runs * 2)
     {
+        // Reset input source before each run.
+        input_array_ptr = &input_buffer[input_source_idx++];
+        input_source_idx %= 2;
+        // input_source_idx = count >= maximum_runs ? 1 : 0;
+
         for (int i = 0; i < hypercube_array.size(); i++)
         {
             // debug(hypercube_array[i]);
