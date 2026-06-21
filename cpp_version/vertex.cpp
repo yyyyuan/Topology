@@ -117,7 +117,7 @@ Vertex get_input(const Vertex& input_vertex) {
     // Copy input signals directly from the input_array following the 1-to-1 address mapping.
     // TODO: Eventually, the behavior should be more natural, meaning that each vertex is able to listen to multiple input slots,
     //       instead of focusing on one slot.
-    virtual_ipnut_vertex.internal_state = input_array[input_vertex.address];
+    virtual_ipnut_vertex.internal_state = (*input_array_ptr)[input_vertex.address];
 
     return virtual_ipnut_vertex;
 }
