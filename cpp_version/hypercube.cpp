@@ -21,19 +21,19 @@ void build_input_array() {
     //     }
     // }
     std::string image_path = "images/photo.jpg";
-    if (loadJpegTo64x64Array(image_path, input_array)) {
+    if (load_jpeg_to_input_buffer(image_path, input_array)) {
         std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
         std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_array[0] << std::endl;
     }
 
     image_path = "images/photo.jpg";
-    if (loadJpegTo64x64Array(image_path, input_buffer[0])) {
+    if (load_jpeg_to_input_buffer(image_path, input_buffer[0])) {
         std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
         std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[0][0] << std::endl;
     }
 
     image_path = "images/image2.jpg";
-    if (loadJpegTo64x64Array(image_path, input_buffer[1])) {
+    if (load_jpeg_to_input_buffer(image_path, input_buffer[1])) {
         std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
         std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[1][0] << std::endl;
     }
@@ -178,7 +178,7 @@ int main(int argc, char *argv[])
 
     int32_t count = 0;
     int32_t input_source_idx = 0;
-    while (count++ < maximum_runs * 2)
+    while (count++ < maximum_runs)
     {
         // Reset input source before each run.
         input_array_ptr = &input_buffer[input_source_idx++];

@@ -5,6 +5,6 @@
 #include <vector>
 
 
-bool loadJpegTo64x64Array(const std::string& filename, std::vector<int32_t>& out_array);
+bool load_jpeg_to_input_buffer(const std::string& filename, std::vector<int32_t>& out_array);
 
 #endif
