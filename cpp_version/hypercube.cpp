@@ -3,14 +3,19 @@
 
 #include <cstdint> // Required for int32_t
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <string>
+#include <unordered_map>
 
+#include "classifier.h"
 #include "constants.h"
 #include "database.h"
 #include "loading_image.h"
 #include "vertex.h"
+
+std::unordered_map<int32_t, Pattern> classifier = {};
 
 // TODO: Now the hypercube should systematically import images into the hypercube.
 void build_input_array() {
@@ -176,51 +181,59 @@ int main(int argc, char *argv[])
     record();
     printf("output_array status before the run: {%d} \n", output_array[0]);
 
-    int32_t count = 0;
     int32_t input_source_idx = 0;
-    while (count++ < maximum_runs)
-    {
+
+    while (true) {
+        int32_t count = 0;
         // Reset input source before each run.
         input_array_ptr = &input_buffer[input_source_idx++];
-        input_source_idx %= 2;
-        // input_source_idx = count >= maximum_runs ? 1 : 0;
-
-        for (int i = 0; i < hypercube_array.size(); i++)
+        input_source_idx %= CATEGORY_COUNT;
+        while (count++ < maximum_runs)
         {
-            // debug(hypercube_array[i]);
-            execute(hypercube_array[i]);
+            
+            // input_source_idx = count >= maximum_runs ? 1 : 0;
+
+            for (int i = 0; i < hypercube_array.size(); i++)
+            {
+                // debug(hypercube_array[i]);
+                execute(hypercube_array[i]);
+            }
+
+            std::cout << "output_array status: {" << output_array[0] << "} \n";
+
+            record();
+
+            // The input_source_idx is defacto the same thing as the expected_image_category.
+            signal_classification(input_source_idx);
+            find_matched_pattern();
+
+            // TODO: To make this hypercube an image categorization machine, 
+            // we need to first tell the naturally-emerged categoorization fingerprints of each image in training/naming phases
+            // before the hypercube can be used in categorization in inference phases.
+            //
+            // This is an assertion that the image categorization fingerprints can be naturally emerged from this hypercube.
+            // Need tests to proove it.
+            //
+            // Image categorization is just a format of image fingerprints.
+            // In theory there is always a way to find the corresponding patterns in this hypercube for images.
+            //
+            // TODO:
+            // Next step is to build an automatic running hypercube verifying this theory, it requires:
+            // 1. Lots of different images keep feeding into hypercube.
+            // 2. Each image takes around 100 - 1000 runs?
+            // 3. Image loading should focus on the center 64 * 64 pixels of the image.
+            // 4. Those constant-feeding images will shape internal structures of the hypercube.
+            // 5. KEY: Write a new function/algorithm keeping scanning vertexes inside hypercube to build fingerprint patterns
+            //    to corresponding categorizations. 
+            //    a. Leverage traditional error rate calculations to calculate how accurate the currently found pattern is.
+            //    b. Keep optimizing patterns of categorizations for each images to reduce error rate.
+            //    c. Each image takes about 100 - 1000 runs to be stable? The pattern is decided after maybe 100 runs.
+            //    d. Following AlexNet, let's start with 1000 categorizations. We need to find 1000 different patterns.
+            //       The pattern to the same categorization could be different in different runs/tests.
+            //    e. Current assumption is that even running hypercube in single-thread CPU can achieve image categorization.
+            //       This is because running on multiple-threads/GPU only change the speed, internal structure construction proocess;
+            //       but it doesn't change the fundamental relationship construction logic in this hypercube.
+            //       So even though it's slow, the same manifold evolving property still takes effects.
         }
-
-        std::cout << "output_array status: {" << output_array[0] << "} \n";
-
-        record();
-
-        // TODO: To make this hypercube an image categorization machine, 
-        // we need to first tell the naturally-emerged categoorization fingerprints of each image in training/naming phases
-        // before the hypercube can be used in categorization in inference phases.
-        //
-        // This is an assertion that the image categorization fingerprints can be naturally emerged from this hypercube.
-        // Need tests to proove it.
-        //
-        // Image categorization is just a format of image fingerprints.
-        // In theory there is always a way to find the corresponding patterns in this hypercube for images.
-        //
-        // TODO:
-        // Next step is to build an automatic running hypercube verifying this theory, it requires:
-        // 1. Lots of different images keep feeding into hypercube.
-        // 2. Each image takes around 100 - 1000 runs?
-        // 3. Image loading should focus on the center 64 * 64 pixels of the image.
-        // 4. Those constant-feeding images will shape internal structures of the hypercube.
-        // 5. KEY: Write a new function/algorithm keeping scanning vertexes inside hypercube to build fingerprint patterns
-        //    to corresponding categorizations. 
-        //    a. Leverage traditional error rate calculations to calculate how accurate the currently found pattern is.
-        //    b. Keep optimizing patterns of categorizations for each images to reduce error rate.
-        //    c. Each image takes about 100 - 1000 runs to be stable? The pattern is decided after maybe 100 runs.
-        //    d. Following AlexNet, let's start with 1000 categorizations. We need to find 1000 different patterns.
-        //       The pattern to the same categorization could be different in different runs/tests.
-        //    e. Current assumption is that even running hypercube in single-thread CPU can achieve image categorization.
-        //       This is because running on multiple-threads/GPU only change the speed, internal structure construction proocess;
-        //       but it doesn't change the fundamental relationship construction logic in this hypercube.
-        //       So even though it's slow, the same manifold evolving property still takes effects.
     }
 }

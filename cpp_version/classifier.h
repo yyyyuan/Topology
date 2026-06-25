@@ -8,7 +8,14 @@
 
 struct Pattern {
     // Indexes of vertexes that are active with a specific image.
-    std::unordered_set<int> vertexes;
+    std::unordered_set<int32_t> vertexes;
+
+    // Indexes of vertexes that are active with a specific image.
+    // Weight is calculated by the number of vertex showing up / the count of times where this image category is used.
+    std::unordered_map<int32_t, int32_t> pattern_weights;
+    // How many rounds did this image category show up in hypercube.
+    // This is used to calculate float weights, which is used in deciding the iamge category.
+    int32_t count_of_rounds;
 
     // Vertex energy threshold used in counting pattern vertexes.
     int32_t filter_threshold = 5;
@@ -19,7 +26,7 @@ struct Pattern {
 };
 
 // Classifier stores image category patterns.
-std::unordered_map<int32_t, Pattern> classifier;
+extern std::unordered_map<int32_t, Pattern> classifier;
 
 // TODO: Calculate if the pattern shown up in the hypercube matches with recorded ones;
 //       if not, how off they are.
@@ -35,6 +42,14 @@ std::unordered_map<int32_t, Pattern> classifier;
 // 2. How many are different-index vertexes
 // 3. How many vertexes in classifier pattern, and percentage of same-index/diff-index?
 // 4. Optional: Is there another category shares the exact same classifier pattern (This means the pattern is not accurate since it covers 2 categories)
-void find_pattern(int32_t expected_img_category);
+void signal_classification(int32_t expected_img_category);
 
-#endif _CLASSIFIER_H_
+// Calculate the probability score of the expected_img_category in current hypercube.
+// Higher score means the pattern inside hypercube matches with the classifier pattern.
+float calculate_pattern_probabilty(int32_t expected_img_category);
+
+// Returns the index of the category that has the best match with hypercubee pattern.
+// This means it has the highest probability score.
+int32_t find_matched_pattern();
+
+#endif
