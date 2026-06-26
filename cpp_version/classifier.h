@@ -29,7 +29,9 @@ struct Pattern {
 extern std::unordered_map<int32_t, Pattern> classifier;
 
 extern int32_t best_matched_category;
-extern float highest_probability_scoore;
+extern float highest_probability_score;
+
+extern std::vector<float> probability_score_list;
 
 // TODO: Calculate if the pattern shown up in the hypercube matches with recorded ones;
 //       if not, how off they are.

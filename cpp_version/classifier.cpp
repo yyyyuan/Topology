@@ -71,17 +71,26 @@ int32_t find_matched_pattern() {
               << " |\n";
     for (int32_t category = 0; category < CATEGORY_COUNT; category++) {
         float calculated_prob_score = calculate_pattern_probabilty(category);
-        if (calculated_prob_score > highest_probability_scoore) {
+        if (calculated_prob_score > highest_probability_score) {
             best_matched_category = category;
-            highest_probability_scoore = calculated_prob_score;
+            highest_probability_score = calculated_prob_score;
         }
+        probability_score_list[category] += calculated_prob_score;
 
         std::cout << "| " << std::setw(col_width) << std::right << std::dec << category
                   << " | " << std::setw(col_width) << std::right << calculated_prob_score
                   << " |\n";
     }
 
-    std::printf("The best matched category is %d, with prob_score: %f \n", best_matched_category, highest_probability_scoore);
+    int max_probability_score_index = 0;
+    for (int i = 1; i < probability_score_list.size(); i++) {
+        if (probability_score_list[i] > probability_score_list[max_probability_score_index]) {
+            max_probability_score_index = i;
+        }
+    }
+
+    std::printf("The best matched category is %d, with prob_score: %f \n", best_matched_category, highest_probability_score);
+    std::printf("The best matched category in probability_score_list is %d, with prob_score: %f \n", max_probability_score_index, probability_score_list[max_probability_score_index]);
 
     // std::printf("\nClassifier Details");
     // std::printf("\n===========\n");

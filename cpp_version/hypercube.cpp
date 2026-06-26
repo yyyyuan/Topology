@@ -17,7 +17,8 @@
 
 std::unordered_map<int32_t, Pattern> classifier = {};
 int32_t best_matched_category = -1;
-float highest_probability_scoore = 0;
+float highest_probability_score = 0;
+std::vector<float> probability_score_list(CATEGORY_COUNT);
 
 // TODO: Now the hypercube should systematically import images into the hypercube.
 void build_input_array() {
@@ -190,7 +191,8 @@ int main(int argc, char *argv[])
         input_source_idx %= CATEGORY_COUNT;
 
         best_matched_category = -1;
-        highest_probability_scoore = 0;
+        highest_probability_score = 0;
+        probability_score_list.assign(CATEGORY_COUNT, 0.0f);
         while (count++ < maximum_runs)
         {
             
