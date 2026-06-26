@@ -16,6 +16,8 @@
 #include "vertex.h"
 
 std::unordered_map<int32_t, Pattern> classifier = {};
+int32_t best_matched_category = -1;
+float highest_probability_scoore = 0;
 
 // TODO: Now the hypercube should systematically import images into the hypercube.
 void build_input_array() {
@@ -116,11 +118,9 @@ int32_t analyze_hypercube() {
     std::printf("===========\n");
 
     std::printf("\nEnergy allocation");
-    std::printf("\n===========\n");
     for (const auto& [bucket, count] : fibonacci_bucket) {
         std::printf("%d: %d\n", bucket, count);
     }
-    std::printf("===========\n");
 
     // TODO: To better understand hypercube properties, we also want to log the addresses of active vertexes.
 
@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
         }
     }
     record();
-    printf("output_array status before the run: {%d} \n", output_array[0]);
+    // printf("output_array status before the run: {%d} \n", output_array[0]);
 
     int32_t input_source_idx = 0;
 
@@ -188,6 +188,9 @@ int main(int argc, char *argv[])
         // Reset input source before each run.
         input_array_ptr = &input_buffer[input_source_idx++];
         input_source_idx %= CATEGORY_COUNT;
+
+        best_matched_category = -1;
+        highest_probability_scoore = 0;
         while (count++ < maximum_runs)
         {
             
@@ -199,9 +202,10 @@ int main(int argc, char *argv[])
                 execute(hypercube_array[i]);
             }
 
-            std::cout << "output_array status: {" << output_array[0] << "} \n";
+            // std::cout << "output_array status: {" << output_array[0] << "} \n";
 
             record();
+            std::printf("The current img category is: %d. ", input_source_idx);
 
             // The input_source_idx is defacto the same thing as the expected_image_category.
             signal_classification(input_source_idx);

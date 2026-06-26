@@ -52,6 +52,6 @@ inline const std::string DEBUG_PATH = "debug.txt";
 
 // ========== Classifier =========
 inline constexpr int32_t CATEGORY_COUNT = 2;
-inline constexpr int32_t CLASSIFIER_ENERGY_THRESHOLD = 5;
+inline constexpr int32_t CLASSIFIER_ENERGY_THRESHOLD = 3;
 
 #endif

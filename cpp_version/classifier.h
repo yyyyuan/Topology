@@ -28,6 +28,9 @@ struct Pattern {
 // Classifier stores image category patterns.
 extern std::unordered_map<int32_t, Pattern> classifier;
 
+extern int32_t best_matched_category;
+extern float highest_probability_scoore;
+
 // TODO: Calculate if the pattern shown up in the hypercube matches with recorded ones;
 //       if not, how off they are.
 

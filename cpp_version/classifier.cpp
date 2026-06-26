@@ -19,9 +19,10 @@ void signal_classification(int32_t expected_img_category) {
         }
 
         // Only recognize vertexes which exceed pre-decided energy threshold.
-        if (vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD) {
+        // TODO:  && vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD
+        if (vertex.excited) {
             current_pattern.vertexes.insert(vertex.address);
-            pattern.pattern_weights[vertex.address] += vertex.energy;
+            // pattern.pattern_weights[vertex.address] += vertex.energy;
             pattern.pattern_weights[vertex.address]++;  // TODO: Also test cases where energy is not used in pattern calculatoin.
         }
     }
@@ -49,9 +50,10 @@ float calculate_pattern_probabilty(int32_t expected_img_category) {
         }
 
         // Only recognize vertexes which exceed pre-decided energy threshold.
-        if (vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD) {
+        // TODO:  && vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD
+        if (vertex.excited) {
             if (pattern.pattern_weights.find(vertex.address) != pattern.pattern_weights.end()) {
-                probability_score += pattern.pattern_weights.at(vertex.address) / pattern.count_of_rounds;
+                probability_score += static_cast<float>(pattern.pattern_weights.at(vertex.address)) / pattern.count_of_rounds;
             }
         }
         
@@ -61,11 +63,9 @@ float calculate_pattern_probabilty(int32_t expected_img_category) {
 }
 
 int32_t find_matched_pattern() {
-    int32_t best_matched_category = -1;
-    float highest_probability_scoore = 0;
-
     static int col_width = 16;
-    std::printf("\nClassifier Summary");
+    std::printf("Classifier Summary\n");
+    std::printf("\n===========\n");
     std::cout << "| " << std::setw(col_width) << std::left << "Category Index"
               << " | " << std::setw(col_width) << std::left << "Prob Score"
               << " |\n";
@@ -81,6 +81,23 @@ int32_t find_matched_pattern() {
                   << " |\n";
     }
 
-    std::printf("The best matched category is %d, with prob_score: %f ", best_matched_category, highest_probability_scoore);
+    std::printf("The best matched category is %d, with prob_score: %f \n", best_matched_category, highest_probability_scoore);
+
+    // std::printf("\nClassifier Details");
+    // std::printf("\n===========\n");
+    // std::cout << "| " << std::setw(col_width) << std::left << "Img Category"
+    //           << " | " << std::setw(col_width) << std::left << "Vertex Address"
+    //           << " | " << std::setw(col_width) << std::left << "Count"
+    //           << " |\n";
+    // for (const auto& classifier_pattern : classifier) {
+    //     for (auto& pattern_node : classifier_pattern.second.pattern_weights) {
+    //          std::cout << "| " << std::setw(col_width) << std::right << std::dec << classifier_pattern.first
+    //               << " | " << std::setw(col_width) << std::right << pattern_node.first
+    //               << " | " << std::setw(col_width) << std::right << static_cast<float>(pattern_node.second) / classifier_pattern.second.count_of_rounds
+    //               << " |\n";
+    //     }
+    // }
+    // std::printf("===========\n");
+
     return best_matched_category;
 }
