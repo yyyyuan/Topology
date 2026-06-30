@@ -55,6 +55,10 @@ float calculate_pattern_probabilty(int32_t expected_img_category);
 
 // Returns the index of the category that has the best match with hypercubee pattern.
 // This means it has the highest probability score.
+//
+// This function is called in training phase.
 int32_t find_matched_pattern();
+
+int32_t find_matched_pattern_in_validation();
 
 #endif

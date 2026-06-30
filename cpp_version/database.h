@@ -18,4 +18,8 @@ extern std::vector<bool> output_array;  // This array represents translated outp
 inline std::vector<int32_t>* input_array_ptr = nullptr;  // This array represents translated input signals from external world.
 extern std::vector<std::vector<int32_t>> input_buffer;
 
+// This array represents the images used in valdiation.
+// Testing if the trained/interfered hypercube is able to recognize image category.
+extern std::vector<std::vector<int32_t>> validation_img_buffer;
+
 #endif

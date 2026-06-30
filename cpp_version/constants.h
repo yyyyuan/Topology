@@ -51,7 +51,11 @@ inline const std::string MANIFOLD_PATH = "manifold.txt";
 inline const std::string DEBUG_PATH = "debug.txt";
 
 // ========== Classifier =========
-inline constexpr int32_t CATEGORY_COUNT = 2;
+inline constexpr int32_t CATEGORY_COUNT = 11;
 inline constexpr int32_t CLASSIFIER_ENERGY_THRESHOLD = 3;
+
+// ========= loading_image ==========
+inline constexpr int TARGET_WIDTH = 256;
+inline constexpr int TARGET_HEIGHT = 256;
 
 #endif

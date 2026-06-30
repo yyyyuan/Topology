@@ -7,8 +7,7 @@
 #include <vector>
 #include <jpeglib.h> // Core libjpeg header
 
-const int TARGET_WIDTH = 64;
-const int TARGET_HEIGHT = 64;
+#include "constants.h"
 
 /**
  * Loads a JPEG image, resizes/scales it to 64x64, and populates an int32_t array.
@@ -44,16 +43,15 @@ bool load_jpeg_to_input_buffer(const std::string& filename, std::vector<int32_t>
     // Force libjpeg to convert the image to standard RGB color space
     cinfo.out_color_space = JCS_RGB;
 
-    // --- LIBJPEG SCALE FACTOR OPTIMIZATION ---
-    // libjpeg can hardware-accelerate downsampling during decompression (1/2, 1/4, 1/8 size).
-    // Let's compute a mathematically sound scale factor based on our 64x64 requirement.
-    if (cinfo.image_width >= TARGET_WIDTH * 8 && cinfo.image_height >= TARGET_HEIGHT * 8) {
-        cinfo.scale_num = 1; cinfo.scale_denom = 8;
-    } else if (cinfo.image_width >= TARGET_WIDTH * 4 && cinfo.image_height >= TARGET_HEIGHT * 4) {
-        cinfo.scale_num = 1; cinfo.scale_denom = 4;
-    } else if (cinfo.image_width >= TARGET_WIDTH * 2 && cinfo.image_height >= TARGET_HEIGHT * 2) {
-        cinfo.scale_num = 1; cinfo.scale_denom = 2;
-    }
+    // --- STEP 1: CALCULATE COARSE SCALE DOWN FOR SPEED ---
+    // Calculate final aspect-aware dimensions to see if libjpeg can pre-shrink it
+    double scale_w = static_cast<double>(TARGET_WIDTH) / cinfo.image_width;
+    double scale_h = static_cast<double>(TARGET_HEIGHT) / cinfo.image_height;
+    double target_scale = std::max(scale_w, scale_h); // Ensure shorter side hits 256
+
+    if (target_scale <= 0.125)      { cinfo.scale_num = 1; cinfo.scale_denom = 8; }
+    else if (target_scale <= 0.25)  { cinfo.scale_num = 1; cinfo.scale_denom = 4; }
+    else if (target_scale <= 0.5)   { cinfo.scale_num = 1; cinfo.scale_denom = 2; }
 
     // Start decompression
     jpeg_start_decompress(&cinfo);
@@ -82,36 +80,83 @@ bool load_jpeg_to_input_buffer(const std::string& filename, std::vector<int32_t>
     jpeg_destroy_decompress(&cinfo);
     fclose(infile);
 
-    // --- RESAMPLE/NEAREST NEIGHBOR TO EXACT 64x64 GRID ---
-    // Since libjpeg's hardware scaling only works in powers of 2, 
-    // we use a safe, fast nearest-neighbor mapping loop to map to absolute 64x64.
+    // --- STEP 2: RESIZE SHORTER SIDE TO EXACTLY 256 (ASPECT-PRESERVED) ---
+    int resized_w, resized_h;
+    if (decomp_w < decomp_h) {
+        resized_w = TARGET_WIDTH;
+        resized_h = (decomp_h * TARGET_HEIGHT) / decomp_w;
+    } else {
+        resized_h = TARGET_HEIGHT;
+        resized_w = (decomp_w * TARGET_WIDTH) / decomp_h;
+    }
+
+    // --- STEP 3: COMPUTE CENTER CROP OFFSETS ---
+    int crop_x = (resized_w - TARGET_WIDTH) / 2;
+    int crop_y = (resized_h - TARGET_HEIGHT) / 2;
+
+    // --- STEP 4: MAP & PACK DIRECTLY TO TARGET GRID ---
     for (int y = 0; y < TARGET_HEIGHT; ++y) {
-        // Map 64-grid coordinate back to the decompressed coordinate space
-        int src_y = (y * decomp_h) / TARGET_HEIGHT;
+        // Map 256-grid coordinates back into the intermediate resized space, factoring in crop offset
+        int intermediate_y = y + crop_y;
+        // Map intermediate space back to the raw decompressed image buffer
+        int src_y = (intermediate_y * decomp_h) / resized_h;
         
         for (int x = 0; x < TARGET_WIDTH; ++x) {
-            int src_x = (x * decomp_w) / TARGET_WIDTH;
+            int intermediate_x = x + crop_x;
+            int src_x = (intermediate_x * decomp_w) / resized_w;
             
             size_t pixel_idx = (src_y * row_stride) + (src_x * num_channels);
             
             uint8_t r = raw_buffer[pixel_idx + 0];
             uint8_t g = raw_buffer[pixel_idx + 1];
             uint8_t b = raw_buffer[pixel_idx + 2];
-            uint8_t a = 0xFF; // JPEGs do not support transparency data
+            uint8_t a = 0xFF; // Non-transparent
 
-            // Pack channels into standard 32-bit integer (0xAARRGGBB format)
+            // // Pack or set to 1/0 based on your threshold logic
             // int32_t packed_pixel = (a << 24) | (r << 16) | (g << 8) | b;
-            
+
             // let packed_pixel be either 0 or 1.
             // Standard perceived luminance formula
             uint8_t luminance = static_cast<uint8_t>(0.299 * r + 0.587 * g + 0.114 * b);
             // If it's bright, make it 1 (white). If it's dark, make it 0 (black).
             int32_t packed_pixel = (luminance > 127) ? 1 : 0;
-
+            
             // Flatten the 2-dimensional image into one dimensional array.
             out_array[y * TARGET_WIDTH + x] = packed_pixel;
+            // out_array[y][x] = packed_pixel;
         }
     }
+
+    // // --- RESAMPLE/NEAREST NEIGHBOR TO EXACT 64x64 GRID ---
+    // // Since libjpeg's hardware scaling only works in powers of 2, 
+    // // we use a safe, fast nearest-neighbor mapping loop to map to absolute 64x64.
+    // for (int y = 0; y < TARGET_HEIGHT; ++y) {
+    //     // Map 64-grid coordinate back to the decompressed coordinate space
+    //     int src_y = (y * decomp_h) / TARGET_HEIGHT;
+        
+    //     for (int x = 0; x < TARGET_WIDTH; ++x) {
+    //         int src_x = (x * decomp_w) / TARGET_WIDTH;
+            
+    //         size_t pixel_idx = (src_y * row_stride) + (src_x * num_channels);
+            
+    //         uint8_t r = raw_buffer[pixel_idx + 0];
+    //         uint8_t g = raw_buffer[pixel_idx + 1];
+    //         uint8_t b = raw_buffer[pixel_idx + 2];
+    //         uint8_t a = 0xFF; // JPEGs do not support transparency data
+
+    //         // Pack channels into standard 32-bit integer (0xAARRGGBB format)
+    //         // int32_t packed_pixel = (a << 24) | (r << 16) | (g << 8) | b;
+            
+    //         // let packed_pixel be either 0 or 1.
+    //         // Standard perceived luminance formula
+    //         uint8_t luminance = static_cast<uint8_t>(0.299 * r + 0.587 * g + 0.114 * b);
+    //         // If it's bright, make it 1 (white). If it's dark, make it 0 (black).
+    //         int32_t packed_pixel = (luminance > 127) ? 1 : 0;
+
+    //         // Flatten the 2-dimensional image into one dimensional array.
+    //         out_array[y * TARGET_WIDTH + x] = packed_pixel;
+    //     }
+    // }
 
     return true;
 }

@@ -70,6 +70,7 @@ int32_t find_matched_pattern() {
               << " | " << std::setw(col_width) << std::left << "Prob Score"
               << " |\n";
     for (int32_t category = 0; category < CATEGORY_COUNT; category++) {
+        if (category == 10) { continue; }
         float calculated_prob_score = calculate_pattern_probabilty(category);
         if (calculated_prob_score > highest_probability_score) {
             best_matched_category = category;
