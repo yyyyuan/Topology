@@ -71,6 +71,8 @@ void execute(Vertex &vertex)
             // Downgrade the excite_threshold if the energy falls below the lower_excite_threshold.
             // If energy < 1, then the energy reaches 0, it will flip and reset the vertex, hence the edge case is covered.
             if (vertex.energy < vertex.lower_excite_thresold) {
+                // The vertex is also excited when the threshold downgrades due to degrading energy.
+                vertex.excited = true;
                 int32_t current_lower_excite_threshold = vertex.lower_excite_thresold;
                 vertex.lower_excite_thresold = vertex.upper_excite_thresold - vertex.lower_excite_thresold;
                 vertex.upper_excite_thresold = current_lower_excite_threshold;
@@ -81,6 +83,8 @@ void execute(Vertex &vertex)
     // Flip the internal_state if no energy is left.
     // The vertex totally collapses!
     if (vertex.energy == 0) {
+        // The vertex also becomes excited when its status flips.
+        vertex.excited = true;
         vertex.internal_state = !vertex.internal_state;
         vertex.energy = 1;  // Reset the vertex energy.
         vertex.upper_excite_thresold = 2;

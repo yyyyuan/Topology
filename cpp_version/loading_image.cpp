@@ -161,6 +161,128 @@ bool load_jpeg_to_input_buffer(const std::string& filename, std::vector<int32_t>
     return true;
 }
 
+bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][3][TARGET_HEIGHT * TARGET_WIDTH]) {
+    // Open the file using standard C I/O (required by libjpeg)
+    FILE* infile = fopen(filename.c_str(), "rb");
+    if (!infile) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return false;
+    }
+
+    // Initialize libjpeg error handling and decompression structures
+    jpeg_decompress_struct cinfo;
+    jpeg_error_mgr jerr;
+    cinfo.err = jpeg_std_error(&jerr);
+    
+    jpeg_create_decompress(&cinfo);
+    jpeg_stdio_src(&cinfo, infile);
+    
+    // Read the JPEG header info
+    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+        std::cerr << "Error: Failed to read JPEG header." << std::endl;
+        jpeg_destroy_decompress(&cinfo);
+        fclose(infile);
+        return false;
+    }
+
+    // Force libjpeg to convert the image to standard RGB color space
+    cinfo.out_color_space = JCS_RGB;
+
+    // --- STEP 1: CALCULATE COARSE SCALE DOWN FOR SPEED ---
+    // Calculate final aspect-aware dimensions to see if libjpeg can pre-shrink it
+    double scale_w = static_cast<double>(TARGET_WIDTH) / cinfo.image_width;
+    double scale_h = static_cast<double>(TARGET_HEIGHT) / cinfo.image_height;
+    double target_scale = std::max(scale_w, scale_h); // Ensure shorter side hits 256
+
+    if (target_scale <= 0.125)      { cinfo.scale_num = 1; cinfo.scale_denom = 8; }
+    else if (target_scale <= 0.25)  { cinfo.scale_num = 1; cinfo.scale_denom = 4; }
+    else if (target_scale <= 0.5)   { cinfo.scale_num = 1; cinfo.scale_denom = 2; }
+
+    // Start decompression
+    jpeg_start_decompress(&cinfo);
+
+    int decomp_w = cinfo.output_width;
+    int decomp_h = cinfo.output_height;
+    int num_channels = cinfo.output_components; // Guaranteed to be 3 (RGB)
+
+    // Allocate a buffer to store the raw decompressed scanlines temporarily
+    size_t row_stride = decomp_w * num_channels;
+    std::vector<uint8_t> raw_buffer(decomp_h * row_stride);
+    
+    // Array of row pointers that libjpeg expects
+    std::vector<JSAMPROW> row_pointers(decomp_h);
+    for (int i = 0; i < decomp_h; ++i) {
+        row_pointers[i] = &raw_buffer[i * row_stride];
+    }
+
+    // Read all the scanlines out of the file into our raw_buffer
+    while (cinfo.output_scanline < cinfo.output_height) {
+        jpeg_read_scanlines(&cinfo, &row_pointers[cinfo.output_scanline], decomp_h);
+    }
+
+    // Finish decompression and clean up libjpeg memory constructs
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+    fclose(infile);
+
+    // --- STEP 2: RESIZE SHORTER SIDE TO EXACTLY 256 (ASPECT-PRESERVED) ---
+    int resized_w, resized_h;
+    if (decomp_w < decomp_h) {
+        resized_w = TARGET_WIDTH;
+        resized_h = (decomp_h * TARGET_HEIGHT) / decomp_w;
+    } else {
+        resized_h = TARGET_HEIGHT;
+        resized_w = (decomp_w * TARGET_WIDTH) / decomp_h;
+    }
+
+    // --- STEP 3: COMPUTE CENTER CROP OFFSETS ---
+    int crop_x = (resized_w - TARGET_WIDTH) / 2;
+    int crop_y = (resized_h - TARGET_HEIGHT) / 2;
+
+    // --- STEP 4: MAP & PACK DIRECTLY TO TARGET GRID ---
+    for (int y = 0; y < TARGET_HEIGHT; ++y) {
+        // Map 256-grid coordinates back into the intermediate resized space, factoring in crop offset
+        int intermediate_y = y + crop_y;
+        // Map intermediate space back to the raw decompressed image buffer
+        int src_y = (intermediate_y * decomp_h) / resized_h;
+        
+        // Each pixel has 3 channels (R,G,B), it needs 3 slots to store the pixel value.
+        for (int x = 0; x < TARGET_WIDTH; ++x) {
+            int intermediate_x = x + crop_x;
+            int src_x = (intermediate_x * decomp_w) / resized_w;
+            
+            size_t pixel_idx = (src_y * row_stride) + (src_x * num_channels);
+            
+            uint8_t r = raw_buffer[pixel_idx + 0];
+            uint8_t g = raw_buffer[pixel_idx + 1];
+            uint8_t b = raw_buffer[pixel_idx + 2];
+            // uint8_t a = 0xFF; // Non-transparent
+
+            // Compress the pixel channel value (from 0 to 255) to an smaller range integer (from 0 - 7).
+            // Using bit-shifting (>>) since this is faster. `5` here refers to o2^ 5 = 32.
+            uint8_t compressed_r = r >> 5;
+            uint8_t compressed_g = g >> 5;
+            uint8_t compressed_b = b >> 5;
+
+            for (int i = 0; i < 8; i++) {
+                // Flatten the 2-dimensional image into one dimensional array.
+                // Only assign `1` if the compressed_r still holds strength signals.
+                if (compressed_r-- > 0) {
+                    out_array[i][0][y * TARGET_WIDTH + x] = 1;
+                }
+                if (compressed_g-- > 0) {
+                    out_array[i][1][y * TARGET_WIDTH + x] = compressed_g;
+                }
+                if (compressed_b-- > 0) {
+                    out_array[i][2][y * TARGET_WIDTH + x] = compressed_b;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
 // int main() {
 //     int32_t pixelGrid[TARGET_HEIGHT * TARGET_WIDTH];
 //     std::string path = "photo.jpg";

@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "classifier.h"
 #include "constants.h"
@@ -20,6 +21,9 @@ std::unordered_map<int32_t, Pattern> classifier = {};
 int32_t best_matched_category = -1;
 float highest_probability_score = 0;
 std::vector<float> probability_score_list(CATEGORY_COUNT);
+std::unordered_set<int32_t> hypercube_state_snapshot = {};
+std::unordered_map<int32_t, int32_t> accumulated_hypercube_state = {};
+std::vector<std::vector<int32_t>> accumulated_hypercube_state_array(CATEGORY_COUNT, std::vector<int32_t>(2));
 
 std::vector<std::string> return_all_file_names(std::string directory_path) {
     std::vector<std::string> file_names = {};
@@ -70,8 +74,13 @@ void build_input_array() {
         for (const std::string& file_name : file_names) {
             std::string image_path = dir_path + "/" + file_name;
             std::cout << image_path << std::endl;
-            if (load_jpeg_to_input_buffer(image_path, input_buffer[i])) {
-                std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
+            // if (load_jpeg_to_input_buffer(image_path, input_buffer[i])) {
+            //     std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid!" << std::endl;
+            //     std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[i][0] << std::endl;
+            // }
+
+            if (load_jpeg_to_input_buffer_in_rgb_format(image_path, rgb_img_buffer[i])) {
+                std::cout << "Successfully decoded and downsampled JPEG into 64x64 grid in RGB format!" << std::endl;
                 std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[i][0] << std::endl;
             }
         }
@@ -89,7 +98,8 @@ void build_input_array() {
     //     std::cout << "Top-left pixel hex (ARGB): 0x" << std::hex << input_buffer[1][0] << std::endl;
     // }
 
-    input_array_ptr = &input_buffer[0];
+    // input_array_ptr = &input_buffer[0];
+    input_array_ptr = &rgb_img_buffer[0][0][0];
 }
 
 void import_validation_image() {
@@ -222,6 +232,7 @@ int main(int argc, char *argv[])
     int32_t maximum_runs = 10;
     bool need_init = false;
     bool verbose = false;
+    bool use_rgb_format = false;
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
@@ -239,6 +250,9 @@ int main(int argc, char *argv[])
         }
         if (arg == "--verbose") {
             verbose = true;
+        }
+        if (arg == "use_rgb_format") {
+            use_rgb_format = true;
         }
     }
 
@@ -275,36 +289,53 @@ int main(int argc, char *argv[])
     while (true) {
         int32_t count = 0;
         // Reset input source before each run.
-        input_array_ptr = &input_buffer[input_source_idx++];
+        // input_array_ptr = &input_buffer[input_source_idx];
+        input_array_ptr = &rgb_img_buffer[input_source_idx][0][0];
         input_source_idx %= CATEGORY_COUNT;
 
         best_matched_category = -1;
         highest_probability_score = 0;
         probability_score_list.assign(CATEGORY_COUNT, 0.0f);
+        hypercube_state_snapshot.clear();
+        accumulated_hypercube_state.clear();
+        accumulated_hypercube_state_array.assign(CATEGORY_COUNT, {0, 0});
 
-        std::printf("The current img category is: %d. ", input_source_idx);
+        std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
         while (count++ < maximum_runs)
         {
-            
-            // input_source_idx = count >= maximum_runs ? 1 : 0;
-            for (int i = 0; i < hypercube_array.size(); i++)
-            {
-                // debug(hypercube_array[i]);
-                execute(hypercube_array[i]);
+            for (int i = 0; i < 8; i++) {
+                for (int j = 0; j < 3; j++) {
+                    input_array_ptr = &rgb_img_buffer[input_source_idx][i][j];
+                    // input_source_idx = count >= maximum_runs ? 1 : 0;
+                    for (int i = 0; i < hypercube_array.size(); i++)
+                    {
+                        // debug(hypercube_array[i]);
+                        execute(hypercube_array[i]);
+                    }
+                }
             }
+            
+            // // input_source_idx = count >= maximum_runs ? 1 : 0;
+            // for (int i = 0; i < hypercube_array.size(); i++)
+            // {
+            //     // debug(hypercube_array[i]);
+            //     execute(hypercube_array[i]);
+            // }
 
             // std::cout << "output_array status: {" << output_array[0] << "} \n";
 
             if (verbose) {
                 record();
-                std::printf("The current img category is: %d. ", input_source_idx);
+                std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
             }
 
-            if (input_source_idx != 10) {
-                // The input_source_idx is defacto the same thing as the expected_image_category.
-                signal_classification(input_source_idx);
+            if (count >= 0) {
+                if (input_source_idx != 10) {
+                    // The input_source_idx is defacto the same thing as the expected_image_category.
+                    signal_classification(input_source_idx);
+                }
+                find_matched_pattern(verbose);
             }
-            find_matched_pattern();
             
 
             // TODO: To make this hypercube an image categorization machine, 
@@ -335,5 +366,8 @@ int main(int argc, char *argv[])
             //       but it doesn't change the fundamental relationship construction logic in this hypercube.
             //       So even though it's slow, the same manifold evolving property still takes effects.
         }
+
+        find_matched_pattern(/*verbose=*/true);
+        input_source_idx++;
     }
 }

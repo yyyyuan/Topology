@@ -20,6 +20,10 @@ struct Pattern {
     // Vertex energy threshold used in counting pattern vertexes.
     int32_t filter_threshold = 5;
 
+    // Indexes of vertexes that are active with a specific image.
+    // Weight is calculated by the number of vertex showing up when the vertex energy exceeds the classifier threshold.
+    std::unordered_map<int32_t, int32_t> pattern_weights_with_energy_threshold;
+
     // The category this pattern indicates.
     // TODO: use std::string instead?
     int32_t category = 0;
@@ -32,6 +36,9 @@ extern int32_t best_matched_category;
 extern float highest_probability_score;
 
 extern std::vector<float> probability_score_list;
+extern std::unordered_set<int32_t> hypercube_state_snapshot;
+extern std::unordered_map<int32_t, int32_t> accumulated_hypercube_state;
+extern std::vector<std::vector<int32_t>> accumulated_hypercube_state_array;
 
 // TODO: Calculate if the pattern shown up in the hypercube matches with recorded ones;
 //       if not, how off they are.
@@ -51,14 +58,12 @@ void signal_classification(int32_t expected_img_category);
 
 // Calculate the probability score of the expected_img_category in current hypercube.
 // Higher score means the pattern inside hypercube matches with the classifier pattern.
-float calculate_pattern_probabilty(int32_t expected_img_category);
+float calculate_pattern_probabilty(int32_t expected_img_category, int32_t& hit_vertex_count, int32_t& excited_vertex_count);
 
 // Returns the index of the category that has the best match with hypercubee pattern.
 // This means it has the highest probability score.
 //
 // This function is called in training phase.
-int32_t find_matched_pattern();
-
-int32_t find_matched_pattern_in_validation();
+int32_t find_matched_pattern(bool verbose);
 
 #endif
