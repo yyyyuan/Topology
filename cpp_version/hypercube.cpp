@@ -17,6 +17,7 @@
 #include "loading_image.h"
 #include "vertex.h"
 
+// The classifier records patterns generated during image reading, its values accumulated as the hypercube runs.
 std::unordered_map<int32_t, Pattern> classifier = {};
 int32_t best_matched_category = -1;
 float highest_probability_score = 0;
@@ -312,6 +313,19 @@ int main(int argc, char *argv[])
                         // debug(hypercube_array[i]);
                         execute(hypercube_array[i]);
                     }
+
+                    if (verbose) {
+                        record();
+                        std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
+                    }
+
+                    if (count >= 0) {
+                        if (input_source_idx != 10) {
+                            // The input_source_idx is defacto the same thing as the expected_image_category.
+                            signal_classification(input_source_idx);
+                        }
+                        find_matched_pattern(verbose);
+                    }
                 }
             }
             
@@ -324,18 +338,18 @@ int main(int argc, char *argv[])
 
             // std::cout << "output_array status: {" << output_array[0] << "} \n";
 
-            if (verbose) {
-                record();
-                std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
-            }
+            // if (verbose) {
+            //     record();
+            //     std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
+            // }
 
-            if (count >= 0) {
-                if (input_source_idx != 10) {
-                    // The input_source_idx is defacto the same thing as the expected_image_category.
-                    signal_classification(input_source_idx);
-                }
-                find_matched_pattern(verbose);
-            }
+            // if (count >= 0) {
+            //     if (input_source_idx != 10) {
+            //         // The input_source_idx is defacto the same thing as the expected_image_category.
+            //         signal_classification(input_source_idx);
+            //     }
+            //     find_matched_pattern(verbose);
+            // }
             
 
             // TODO: To make this hypercube an image categorization machine, 
@@ -368,6 +382,7 @@ int main(int argc, char *argv[])
         }
 
         find_matched_pattern(/*verbose=*/true);
+        reset_classifier(input_source_idx);
         input_source_idx++;
     }
 }

@@ -30,6 +30,7 @@ inline int32_t input_buffer[CATEGORY_COUNT][TARGET_HEIGHT * TARGET_WIDTH];
 //                 ...
 //                 112-127 => 11111111
 inline int32_t rgb_img_buffer[CATEGORY_COUNT][8][3][TARGET_HEIGHT * TARGET_WIDTH];
+// inline int32_t rgb_img_buffer[CATEGORY_COUNT][8][TARGET_HEIGHT * TARGET_WIDTH * 3];
 
 // This array represents the images used in valdiation.
 // Testing if the trained/interfered hypercube is able to recognize image category.

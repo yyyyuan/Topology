@@ -60,10 +60,20 @@ void signal_classification(int32_t expected_img_category);
 // Higher score means the pattern inside hypercube matches with the classifier pattern.
 float calculate_pattern_probabilty(int32_t expected_img_category, int32_t& hit_vertex_count, int32_t& excited_vertex_count);
 
-// Returns the index of the category that has the best match with hypercubee pattern.
+// Returns the index of the category that has the best match with hypercube pattern.
 // This means it has the highest probability score.
 //
 // This function is called in training phase.
 int32_t find_matched_pattern(bool verbose);
+
+// Returns the index of the category that has the best match with hypercubee pattern using the accumulated_hypercube_state_array.
+// This means it has the highest probability score.
+//
+// This function is called once after the reading.
+int32_t find_best_matched_pattern_using_accumulated_pattern();
+
+// Reset the classifier so values from previous run won't populate the next round run.
+// Currently only reset the count_of_rounds.
+void reset_classifier(int32_t img_category);
 
 #endif

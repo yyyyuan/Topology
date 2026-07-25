@@ -88,7 +88,7 @@ int32_t find_matched_pattern(bool verbose) {
                 << " |\n";
     }
     for (int32_t category = 0; category < CATEGORY_COUNT; category++) {
-        if (category == 10) { continue; }
+        // if (category == 10) { continue; }
         int32_t hit_vertex_count = 0;
         int32_t excited_vertex_count = 0;
         float calculated_prob_score = calculate_pattern_probabilty(category, hit_vertex_count, excited_vertex_count);
@@ -121,6 +121,7 @@ int32_t find_matched_pattern(bool verbose) {
         std::cout << "| " << std::setw(col_width) << std::left << "Category Index"
                 << " | " << std::setw(col_width) << std::left << "Accumulated Prob Score"
                 << " | " << std::setw(col_width) << std::left << "Accumulated Match Percentage"
+                << " | " << std::setw(col_width) << std::left << "Hit Vertex Count"
                 << " | " << std::setw(col_width) << std::left << "Excited Vertex Count"
                 << " |\n";
 
@@ -128,13 +129,24 @@ int32_t find_matched_pattern(bool verbose) {
             std::cout << "| " << std::setw(col_width) << std::right << std::dec << i
                     << " | " << std::setw(col_width) << std::right << probability_score_list[i]
                     << " | " << std::setw(col_width) << std::right << (accumulated_hypercube_state_array[i][1] == 0 ? 0.0f : static_cast<float>(accumulated_hypercube_state_array[i][0]) / accumulated_hypercube_state_array[i][1])
+                    << " | " << std::setw(col_width) << std::right << accumulated_hypercube_state_array[i][0]
                     << " | " << std::setw(col_width) << std::right << accumulated_hypercube_state_array[i][1]
                     << " |\n";
         }
 
         std::printf("The best matched category is %d, with prob_score: %f \n", best_matched_category, highest_probability_score);
-        std::printf("The best matched category in probability_score_list is %d, with prob_score: %f \n", max_probability_score_index, probability_score_list[max_probability_score_index]);
+        std::printf("The best matched category in accumulated probability_score_list is %d, with prob_score: %f \n", max_probability_score_index, probability_score_list[max_probability_score_index]);
     }
 
     return best_matched_category;
+}
+
+void reset_classifier(int32_t img_category) {
+    if (classifier.find(img_category) == classifier.end()) {
+        return;
+    }
+    Pattern& pattern = classifier.at(img_category);
+    pattern.count_of_rounds = 0;
+    
+    return;
 }

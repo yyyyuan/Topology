@@ -269,12 +269,15 @@ bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_
                 // Only assign `1` if the compressed_r still holds strength signals.
                 if (compressed_r-- > 0) {
                     out_array[i][0][y * TARGET_WIDTH + x] = 1;
+                    // out_array[i][y * TARGET_WIDTH + 3 * x] = 1;
                 }
                 if (compressed_g-- > 0) {
-                    out_array[i][1][y * TARGET_WIDTH + x] = compressed_g;
+                    out_array[i][1][y * TARGET_WIDTH + x] = 1;
+                    // out_array[i][y * TARGET_WIDTH + 3 * x + 1] = 1;
                 }
                 if (compressed_b-- > 0) {
-                    out_array[i][2][y * TARGET_WIDTH + x] = compressed_b;
+                    out_array[i][2][y * TARGET_WIDTH + x] = 1;
+                    // out_array[i][y * TARGET_WIDTH + 3 * x + 2] = 1;
                 }
             }
         }
