@@ -11,7 +11,7 @@ int32_t calculate_neighbor_address(int32_t neighbor_index, int32_t address)
 void spin(Vertex &vertex)
 {
     // The first and last neighbor_indexes in the list are connected with each other.
-    vertex.neighbor_index = (vertex.neighbor_index + 1) & MASK_K;
+    vertex.neighbor_index = (vertex.neighbor_index + 1) % (ADDR_BITS - 1);
     return;
 
     // if (vertex.neighbor_index == 0 && vertex.direction != DIR_INCREASE_K) {
