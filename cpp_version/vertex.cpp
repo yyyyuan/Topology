@@ -10,21 +10,25 @@ int32_t calculate_neighbor_address(int32_t neighbor_index, int32_t address)
 
 void spin(Vertex &vertex)
 {
-    if (vertex.neighbor_index == 0 && vertex.direction != DIR_INCREASE_K) {
-        vertex.direction = DIR_INCREASE_K;
-    }
-    if (vertex.neighbor_index == (ADDR_BITS - 1) && vertex.direction == DIR_INCREASE_K) {
-        vertex.direction = DIR_DECREASE_K;
-    }
-
-    if (vertex.direction == DIR_INCREASE_K) {
-        vertex.neighbor_index = (vertex.neighbor_index + 1) & MASK_K;
-    }
-    else {
-        vertex.neighbor_index = (vertex.neighbor_index - 1) & MASK_K;
-    }
-
+    // The first and last neighbor_indexes in the list are connected with each other.
+    vertex.neighbor_index = (vertex.neighbor_index + 1) & MASK_K;
     return;
+
+    // if (vertex.neighbor_index == 0 && vertex.direction != DIR_INCREASE_K) {
+    //     vertex.direction = DIR_INCREASE_K;
+    // }
+    // if (vertex.neighbor_index == (ADDR_BITS - 1) && vertex.direction == DIR_INCREASE_K) {
+    //     vertex.direction = DIR_DECREASE_K;
+    // }
+
+    // if (vertex.direction == DIR_INCREASE_K) {
+    //     vertex.neighbor_index = (vertex.neighbor_index + 1) & MASK_K;
+    // }
+    // else {
+    //     vertex.neighbor_index = (vertex.neighbor_index - 1) & MASK_K;
+    // }
+
+    // return;
 }
 
 void execute(Vertex &vertex)
@@ -41,6 +45,9 @@ void execute(Vertex &vertex)
     if (vertex.type == VertexType::INPUT) {
         // This neighbor_vertex is a virtual input vertex representing signals from external world.
         neighbor_vertex = get_input(vertex);
+
+        // // INPUT vertex should always stay positive without being affected by refractory/energy accumulation.
+        // return;
     }
     else {
         // TODO: For vertex acceptin inputs from outside, there can be a special handling to make neighbr_address not change or only change in a very small range.
@@ -91,6 +98,10 @@ void execute(Vertex &vertex)
         vertex.lower_excite_thresold = 1;
     }
 
+    // if (vertex.type != VertexType::INPUT && vertex.excited) {
+    //     printf("Excited vertex!: vertex.internal_state: %d, energy: %d", vertex.internal_state, vertex.energy);
+    // }
+
     // The vertex spins...
     spin(vertex);
 
@@ -122,6 +133,9 @@ Vertex get_input(const Vertex& input_vertex) {
     // TODO: Eventually, the behavior should be more natural, meaning that each vertex is able to listen to multiple input slots,
     //       instead of focusing on one slot.
     virtual_ipnut_vertex.internal_state = (*input_array_ptr)[input_vertex.address];
+
+    // input_vertex.excited = true;
+    // input_vertex.internal_state = virtual_ipnut_vertex.internal_state;
 
     return virtual_ipnut_vertex;
 }

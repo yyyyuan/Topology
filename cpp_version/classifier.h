@@ -72,8 +72,7 @@ int32_t find_matched_pattern(bool verbose);
 // This function is called once after the reading.
 int32_t find_best_matched_pattern_using_accumulated_pattern();
 
-// Reset the classifier so values from previous run won't populate the next round run.
-// Currently only reset the count_of_rounds.
+// Reset values inside classifier that shouldn't be accumulated in the next run.
 void reset_classifier(int32_t img_category);
 
 #endif

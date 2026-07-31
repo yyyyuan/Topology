@@ -161,7 +161,8 @@ bool load_jpeg_to_input_buffer(const std::string& filename, std::vector<int32_t>
     return true;
 }
 
-bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][3][TARGET_HEIGHT * TARGET_WIDTH]) {
+// bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][3][RGB_INPUT_BUFFER_SIZE]) {
+bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][RGB_INPUT_BUFFER_SIZE]) {
     // Open the file using standard C I/O (required by libjpeg)
     FILE* infile = fopen(filename.c_str(), "rb");
     if (!infile) {
@@ -259,26 +260,26 @@ bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_
             // uint8_t a = 0xFF; // Non-transparent
 
             // Compress the pixel channel value (from 0 to 255) to an smaller range integer (from 0 - 7).
-            // Using bit-shifting (>>) since this is faster. `5` here refers to o2^ 5 = 32.
+            // Using bit-shifting (>>) since this is faster. `5` here refers to 2^ 5 = 32.
             uint8_t compressed_r = r >> 5;
             uint8_t compressed_g = g >> 5;
             uint8_t compressed_b = b >> 5;
+            // printf("r, g, b: %d, %d, %d\n", r, g, b);
+            // printf("compressed_r, compressed_g, compressed_b: %d, %d, %d\n", compressed_r, compressed_g, compressed_b);
 
-            for (int i = 0; i < 8; i++) {
-                // Flatten the 2-dimensional image into one dimensional array.
-                // Only assign `1` if the compressed_r still holds strength signals.
-                if (compressed_r-- > 0) {
-                    out_array[i][0][y * TARGET_WIDTH + x] = 1;
-                    // out_array[i][y * TARGET_WIDTH + 3 * x] = 1;
-                }
-                if (compressed_g-- > 0) {
-                    out_array[i][1][y * TARGET_WIDTH + x] = 1;
-                    // out_array[i][y * TARGET_WIDTH + 3 * x + 1] = 1;
-                }
-                if (compressed_b-- > 0) {
-                    out_array[i][2][y * TARGET_WIDTH + x] = 1;
-                    // out_array[i][y * TARGET_WIDTH + 3 * x + 2] = 1;
-                }
+            // Flatten the 2-dimensional image into one dimensional array.
+            // Only assign `1` if the compressed_r still holds strength signals.
+            for (int i = 0; i <= compressed_r && compressed_r < 8; i++) {
+                // out_array[i][0][y * TARGET_WIDTH + x] = 1;
+                out_array[i][y * TARGET_WIDTH + 3 * x] = 1;
+            }
+            for (int i = 0; i <= compressed_g && compressed_g < 8; i++) {
+                // out_array[i][1][y * TARGET_WIDTH + x] = 1;
+                out_array[i][y * TARGET_WIDTH + 3 * x + 1] = 1;
+            }
+            for (int i = 0; i <= compressed_b && compressed_b < 8; i++) {
+                // out_array[i][2][y * TARGET_WIDTH + x] = 1;
+                out_array[i][y * TARGET_WIDTH + 3 * x + 2] = 1;
             }
         }
     }

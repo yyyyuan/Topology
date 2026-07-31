@@ -1,6 +1,7 @@
 // A new program running the manifold using the new vertex design.
 // Putting everything in a new file, meaning a new start I guess.
 
+#include <chrono>
 #include <cstdint> // Required for int32_t
 #include <filesystem> // Required for std::filesystem
 #include <fstream>
@@ -100,7 +101,8 @@ void build_input_array() {
     // }
 
     // input_array_ptr = &input_buffer[0];
-    input_array_ptr = &rgb_img_buffer[0][0][0];
+    // input_array_ptr = &rgb_img_buffer[0][0][0];
+    input_array_ptr = &rgb_img_buffer[0][0];
 }
 
 void import_validation_image() {
@@ -153,7 +155,7 @@ int32_t analyze_hypercube() {
             }
         }
 
-        if (vertex.energy > 1 && vertex.type != VertexType::INPUT) {
+        if (vertex.energy > 1) {
             if (vertex.internal_state) {
                 hypercube_structure[active_bits].min_energy_positive = std::min(hypercube_structure[active_bits].min_energy_positive, vertex.energy);
                 hypercube_structure[active_bits].max_energy_positive = std::max(hypercube_structure[active_bits].max_energy_positive, vertex.energy);
@@ -181,6 +183,13 @@ int32_t analyze_hypercube() {
     }
 
     static int col_width = 16;
+
+    auto now = std::chrono::system_clock::now();
+    std::time_t time_now = std::chrono::system_clock::to_time_t(now);
+    std::cout << "Current time: " 
+              << std::put_time(std::localtime(&time_now), "%Y-%m-%d %H:%M:%S") 
+              << '\n';
+
     std::printf("\nHypercube structure in the format of Hammer String");
     std::printf("\n===========\n");
     std::cout << "| " << std::setw(col_width) << std::left << "Hammer String"
@@ -268,7 +277,7 @@ int main(int argc, char *argv[])
         {
             // Allocate INPUT/NORMAL/OUTPUT vertexes.
             VertexType type = VertexType::NORMAL;
-            if (i < TARGET_WIDTH * TARGET_HEIGHT) {
+            if (i < RGB_INPUT_BUFFER_SIZE) {
                 type = VertexType::INPUT;
             }
             // Select 1000 slots in the middle of hypercube as output slots.
@@ -291,7 +300,8 @@ int main(int argc, char *argv[])
         int32_t count = 0;
         // Reset input source before each run.
         // input_array_ptr = &input_buffer[input_source_idx];
-        input_array_ptr = &rgb_img_buffer[input_source_idx][0][0];
+        // input_array_ptr = &rgb_img_buffer[input_source_idx][0][0];
+        input_array_ptr = &rgb_img_buffer[input_source_idx][0];
         input_source_idx %= CATEGORY_COUNT;
 
         best_matched_category = -1;
@@ -304,28 +314,26 @@ int main(int argc, char *argv[])
         std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
         while (count++ < maximum_runs)
         {
-            for (int i = 0; i < 8; i++) {
-                for (int j = 0; j < 3; j++) {
-                    input_array_ptr = &rgb_img_buffer[input_source_idx][i][j];
-                    // input_source_idx = count >= maximum_runs ? 1 : 0;
-                    for (int i = 0; i < hypercube_array.size(); i++)
-                    {
-                        // debug(hypercube_array[i]);
-                        execute(hypercube_array[i]);
-                    }
+            for (int channel = 0; channel < 8; channel++) {
+                input_array_ptr = &rgb_img_buffer[input_source_idx][channel];
+                // input_source_idx = count >= maximum_runs ? 1 : 0;
+                for (int i = 0; i < hypercube_array.size(); i++)
+                {
+                    // debug(hypercube_array[i]);
+                    execute(hypercube_array[i]);
+                }
 
-                    if (verbose) {
-                        record();
-                        std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
-                    }
+                if (verbose) {
+                    record();
+                    std::printf("The current img category is: %d - iteration is: %d ", input_source_idx, count);
+                }
 
-                    if (count >= 0) {
-                        if (input_source_idx != 10) {
-                            // The input_source_idx is defacto the same thing as the expected_image_category.
-                            signal_classification(input_source_idx);
-                        }
-                        find_matched_pattern(verbose);
+                if (count >= (count / 2)) {
+                    if (input_source_idx != 10) {
+                        // The input_source_idx is defacto the same thing as the expected_image_category.
+                        signal_classification(input_source_idx);
                     }
+                    find_matched_pattern(verbose);
                 }
             }
             
@@ -381,6 +389,7 @@ int main(int argc, char *argv[])
             //       So even though it's slow, the same manifold evolving property still takes effects.
         }
 
+        record();
         find_matched_pattern(/*verbose=*/true);
         reset_classifier(input_source_idx);
         input_source_idx++;

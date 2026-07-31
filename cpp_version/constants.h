@@ -57,5 +57,7 @@ inline constexpr int32_t CLASSIFIER_ENERGY_THRESHOLD = 3;
 // ========= loading_image ==========
 inline constexpr int TARGET_WIDTH = 256;
 inline constexpr int TARGET_HEIGHT = 256;
+inline constexpr int RGB_SIZE = 3;  // The number of different colors represented inside RGB format, which is of course ... 3!
+inline constexpr int32_t RGB_INPUT_BUFFER_SIZE = TARGET_WIDTH * TARGET_HEIGHT * RGB_SIZE;
 
 #endif

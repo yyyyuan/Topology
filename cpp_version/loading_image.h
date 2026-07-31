@@ -20,7 +20,7 @@ bool load_jpeg_to_input_buffer(const std::string& filename, std::vector<int32_t>
 // Hypercube takes 8-clocks (there will be NO refractory period for those special retina nodes) to finish absorbing one image.
 // In this process, both 0 and 1 represent excited signals; so 0 represents vertex with -1 status, 1 represents vertex with 1 status.
 // The refractory period (1-clock) will still happen after the vertex becomes excited; so eventually it takes 16-clocks to finish absorbing one image.
-bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][3][TARGET_HEIGHT * TARGET_WIDTH]);
-// bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][TARGET_HEIGHT * TARGET_WIDTH * 3]);
+bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][RGB_INPUT_BUFFER_SIZE]);
+// bool load_jpeg_to_input_buffer_in_rgb_format(const std::string& filename, int32_t (&out_array)[8][3][RGB_INPUT_BUFFER_SIZE]);
 
 #endif

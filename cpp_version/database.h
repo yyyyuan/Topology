@@ -16,7 +16,7 @@ extern std::vector<Vertex> hypercube_array;
 extern std::vector<int32_t> input_array;  // This array represents translated input signals from external world.
 extern std::vector<bool> output_array;  // This array represents translated output signals from hypercube.
 
-inline int32_t (*input_array_ptr)[TARGET_HEIGHT * TARGET_WIDTH] = nullptr;  // This array represents translated input signals from external world.
+inline int32_t (*input_array_ptr)[RGB_INPUT_BUFFER_SIZE] = nullptr;  // This array represents translated input signals from external world.
 // extern std::vector<std::vector<int32_t>> input_buffer;
 inline int32_t input_buffer[CATEGORY_COUNT][TARGET_HEIGHT * TARGET_WIDTH];
 
@@ -29,8 +29,8 @@ inline int32_t input_buffer[CATEGORY_COUNT][TARGET_HEIGHT * TARGET_WIDTH];
 //                 16-31 => 10000000
 //                 ...
 //                 112-127 => 11111111
-inline int32_t rgb_img_buffer[CATEGORY_COUNT][8][3][TARGET_HEIGHT * TARGET_WIDTH];
-// inline int32_t rgb_img_buffer[CATEGORY_COUNT][8][TARGET_HEIGHT * TARGET_WIDTH * 3];
+inline int32_t rgb_img_buffer[CATEGORY_COUNT][8][RGB_INPUT_BUFFER_SIZE];
+// inline int32_t rgb_img_buffer[CATEGORY_COUNT][8][3][RGB_INPUT_BUFFER_SIZE];
 
 // This array represents the images used in valdiation.
 // Testing if the trained/interfered hypercube is able to recognize image category.

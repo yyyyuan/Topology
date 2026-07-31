@@ -15,16 +15,16 @@ void signal_classification(int32_t expected_img_category) {
 
     Pattern current_pattern;
     for (const Vertex& vertex : hypercube_array) {
-        if (vertex.type == VertexType::INPUT) {
-            continue;
-        }
+        // if (vertex.type == VertexType::INPUT) {
+        //     continue;
+        // }
 
         // Only recognize vertexes which exceed pre-decided energy threshold.
         // TODO:  && vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD
-        if (vertex.excited) {
+        if (vertex.excited && vertex.type != VertexType::INPUT) {
         // if (vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD) {
             current_pattern.vertexes.insert(vertex.address);
-            // pattern.pattern_weights[vertex.address] += vertex.energy;
+            // pattern.pattern_weights[vertex.address] += vertex.energy;  // TODO: 2026-07-27: Test using energy in pattern calculation.
             pattern.pattern_weights[vertex.address]++;  // TODO: Also test cases where energy is not used in pattern calculatoin.
         }
     }
@@ -48,9 +48,9 @@ float calculate_pattern_probabilty(int32_t expected_img_category, int32_t& hit_v
     float probability_score = 0;
     hypercube_state_snapshot.clear(); // Reset the hypercube state snapshot.
     for (const Vertex& vertex : hypercube_array) {
-        if (vertex.type == VertexType::INPUT) {
-            continue;
-        }
+        // if (vertex.type == VertexType::INPUT) {
+        //     continue;
+        // }
 
         // Only recognize vertexes which exceed pre-decided energy threshold.
         // TODO:  && vertex.energy >= CLASSIFIER_ENERGY_THRESHOLD
@@ -65,7 +65,7 @@ float calculate_pattern_probabilty(int32_t expected_img_category, int32_t& hit_v
                 accumulated_hypercube_state[vertex.address] = 1;
             }
 
-            if (pattern.pattern_weights.find(vertex.address) != pattern.pattern_weights.end()) {
+            if (pattern.pattern_weights.find(vertex.address) != pattern.pattern_weights.end() && pattern.count_of_rounds != 0) {
                 hit_vertex_count++;
                 probability_score += static_cast<float>(pattern.pattern_weights.at(vertex.address)) / pattern.count_of_rounds;
             }
@@ -146,7 +146,6 @@ void reset_classifier(int32_t img_category) {
         return;
     }
     Pattern& pattern = classifier.at(img_category);
-    pattern.count_of_rounds = 0;
     
     return;
 }
