@@ -1,3 +1,5 @@
+%%writefile main.cu
+
 #include <iostream>
 #include <vector>
 #include <cmath>
