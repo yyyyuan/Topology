@@ -65,7 +65,7 @@ __global__ void vit_embed_forward_bool_kernel(
     );
 
     float total_projection = 0.0f;
-    int num_vecs = BOOLS_PER_PATCH / 4; // 4096 uchar4 vectors per patch
+    int num_vecs = BOOLS_PER_PATCH / 4; // 4096 uchar4 vectors per patch, each uchar4 has 4 bools.
 
     for (int i = 0; i < num_vecs; ++i) {
         uchar4 b4 = state_vec[i];
@@ -129,7 +129,7 @@ __global__ void global_avg_pool_kernel(
 // This functin takes the hypercube snapshot summary vector (embed_dim)
 // and computes logits for each category.
 __global__ void linear_classifier_kernel(
-    const float* __restrict__ pooled,  // [EMBED_DIM]
+    const float* __restrict__ pooled,  // [EMBED_DIM], the feature values are aggregated into pooled from [NUM_PATCHES, EMBED_DIM] via averaging.
     const float* __restrict__ W_class, // [EMBED_DIM, NUM_CLASSES]
     float*       __restrict__ logits,  // [NUM_CLASSES]
     int embed_dim, int num_classes)
