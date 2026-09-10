@@ -47,6 +47,20 @@ __global__ void mutate_raw_hypercube_kernel(
     int total_bools = RAW_FRAMES * NUM_PATCHES * WORDS_PER_FRAME * 32;
     if (tid >= total_bools) return;
 
+    // Mutate across temporal snapshots and write into multi-frame buffer
+    for (int t = 0; t < RAW_FRAMES; ++t) {
+        if (t > 0) {
+            // High-throughput 32-bit XOR-shift mutator per bit position
+            uint32_t x = tid ^ (seed + t * 0x9e3779b9);
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            // 50% probability flip on bit evolution
+            current_state = (x & 0x1) ? !current_state : current_state;
+        }
+        sequence_hypercube[t * HYPERCUBE_BOOLS + tid] = current_state;
+    }
+
     uint32_t x = tid ^ seed;
     x ^= x << 13;
     x ^= x >> 17;
