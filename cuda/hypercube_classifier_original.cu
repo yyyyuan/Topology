@@ -40,7 +40,7 @@ constexpr int NUM_CLASSES       = 1000;                         // 1,000 downstr
 // ============================================================================
 // Fills/mutates raw 200-frame boolean hypercube state [RAW_FRAMES, NUM_PATCHES, WORDS_PER_FRAME * 32]
 __global__ void mutate_raw_hypercube_kernel(
-    bool* __restrict__ raw_hypercube,
+    bool* __restrict__ sequence_hypercube,
     uint32_t seed) 
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -51,11 +51,8 @@ __global__ void mutate_raw_hypercube_kernel(
     x ^= x << 13;
     x ^= x >> 17;
     x ^= x << 5;
-    raw_hypercube[tid] = (x & 0x1) ? true : false;
+    sequence_hypercube[tid] = (x & 0x1) ? true : false;
 }
-// ============================================================================
-// End of 1. RAW SIMULATION BUFFER MUTATION KERNEL
-// ============================================================================
 
 // ============================================================================
 // 2. SPATIOTEMPORAL PROJECTION KERNEL (Tubelet Slicing + Projection)
