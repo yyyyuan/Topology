@@ -11,6 +11,10 @@
 // CONFIGURATION PARAMETERS & HYPERCUBE DIMENSIONS
 // ============================================================================
 // Raw Simulation Buffer: 200 Frames x 256 Patches x 512 Words (104,857,600 Bytes / 104.85 MB)
+// Total booleans in our hypercube manifold (4 MB bitfield = 33,554,432 bits)
+// Represented in GPU memory as 4,194,304 contiguous bools (1 byte per bool for fast execution)
+constexpr int HYPERCUBE_BOOLS = 4194304; 
+
 constexpr int RAW_FRAMES        = 200;
 constexpr int TUBELET_FRAMES    = 4;                            // 4 raw frames bundled per tubelet step
 constexpr int TEMPORAL_STEPS    = RAW_FRAMES / TUBELET_FRAMES;  // T = 50 temporal tubelet steps
@@ -30,6 +34,34 @@ constexpr int NUM_CLASSES       = 1000;                         // 1,000 downstr
             exit(EXIT_FAILURE); \
         } \
     } while (0)
+
+// Simulates continuous dynamic state transitions across time steps (t = 0 ... T-1).
+// Frame 0 holds the initial manifold baseline; subsequent frames apply high-throughput
+// XOR-shift pseudo-random bit mutators to model temporal hypercube evolution.
+__global__ void mutate_hypercube_sequence_kernel(
+    bool* __restrict__ sequence_hypercube, // [NUM_TIMEFRAMES, HYPERCUBE_BOOLS]
+    uint32_t seed) 
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= HYPERCUBE_BOOLS) return;
+
+    // Load baseline state at t = 0
+    bool current_state = sequence_hypercube[tid]; 
+
+    // Mutate across temporal snapshots and write into multi-frame buffer
+    for (int t = 0; t < NUM_TIMEFRAMES; ++t) {
+        if (t > 0) {
+            // High-throughput 32-bit XOR-shift mutator per bit position
+            uint32_t x = tid ^ (seed + t * 0x9e3779b9);
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            // 50% probability flip on bit evolution
+            current_state = (x & 0x1) ? !current_state : current_state;
+        }
+        sequence_hypercube[t * HYPERCUBE_BOOLS + tid] = current_state;
+    }
+}
 
 // ============================================================================
 // 1. RAW SIMULATION BUFFER MUTATION KERNEL
