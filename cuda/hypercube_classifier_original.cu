@@ -21,6 +21,7 @@ constexpr int TOTAL_TOKENS    = NUM_PATCHES * NUM_TIMEFRAMES; // Total spatio-te
 
 constexpr int BOOLS_PER_PATCH = HYPERCUBE_BOOLS / NUM_PATCHES; // 16,384 bools / patch
 constexpr int WORDS_PER_PATCH = BOOLS_PER_PATCH / 32;          // 512 logical 32-bit word equivalents
+constexpr int TOTAL_WORDS     = WORDS_PER_PATCH * NUM_PATCHES; // 131072 words in this hypercube
 constexpr int EMBED_DIM       = 128;                           // Transformer embedding dimension (D)
 constexpr int NUM_CLASSES     = 10;                            // Downstream classification categories
 
@@ -72,7 +73,7 @@ __global__ void mutate_hypercube_sequence_kernel(
 // instructions. Parallelized across both Spatial Patches (blockIdx.x) and Temporal 
 // Timeframes (blockIdx.y), projecting boolean density slices into continuous embeddings.
 __global__ void vit_embed_forward_temporal_kernel(
-    const bool* __restrict__ sequence_state, // [NUM_TIMEFRAMES, HYPERCUBE_BOOLS]
+    const bool* __restrict__ sequence_state, // [NUM_TIMEFRAMES, HYPERCUBE_BOOLS], not a good name!
     const float* __restrict__ W_proj,         // [WORDS_PER_PATCH, EMBED_DIM]
     float*       __restrict__ tokens,         // [NUM_TIMEFRAMES, NUM_PATCHES, EMBED_DIM]
     float*       __restrict__ densities)      // [NUM_TIMEFRAMES, NUM_PATCHES, WORDS_PER_PATCH]
@@ -90,24 +91,26 @@ __global__ void vit_embed_forward_temporal_kernel(
     const uchar4* state_vec = reinterpret_cast<const uchar4*>(current_patch_state);
 
     float total_projection = 0.0f;
-    int num_vecs = BOOLS_PER_PATCH / 4; // 4096 uchar4 vectors per patch
+    int num_vecs = BOOLS_PER_PATCH / 4; // 4096 uchar4 vectors per patch, each uchar4 has 4 bools.
 
     for (int i = 0; i < num_vecs; ++i) {
         // Vectorized load of 4 boolean values simultaneously
         uchar4 b4 = state_vec[i];
 
-        // Convert boolean states directly into numeric floats
+        // Convert boolean states directly to float densities (1.0f or 0.0f)
         float v0 = b4.x ? 1.0f : 0.0f;
         float v1 = b4.y ? 1.0f : 0.0f;
         float v2 = b4.z ? 1.0f : 0.0f;
         float v3 = b4.w ? 1.0f : 0.0f;
 
+        // Group into 32-bool density word equivalents for backward compatibility
         // Map to logical word equivalent (8 x uchar4 = 32 bools = 1 word)
-        int word_idx = i / 8;
+        int word_idx = i / 8; // 8 x 4-bools = 32 bools = 1 word
 
         // Density Cache Phase: thread 0 records word-level active bit densities
         // required during backpropagation for exact projection gradient calculation
         if (densities != nullptr && dim_idx == 0 && (i % 8 == 0)) {
+            // Aggregate density across 32 boolean elements
             float density_sum = 0.0f;
             for (int k = 0; k < 8; ++k) {
                 uchar4 sub_b4 = state_vec[i + k];
@@ -128,6 +131,7 @@ __global__ void vit_embed_forward_temporal_kernel(
     }
 
     // Write final spatio-temporal token embedding output
+    // tokens dimension shape: [NUM_PATCHES, EMBED_DIM]
     tokens[token_offset * EMBED_DIM + dim_idx] = total_projection;
 }
 
@@ -136,6 +140,8 @@ __global__ void vit_embed_forward_temporal_kernel(
 // ============================================================================
 // Global Spatio-Temporal Average Pooling: Aggregates across all (T * N) tokens
 // into a unified D-dimensional sequence embedding vector.
+// This final compression is achived via averaging.
+// For each dimension, the value is averaged via the same dimension value across all num_patches.
 __global__ void global_spatiotemporal_pool_kernel(
     const float* __restrict__ tokens, // [TOTAL_TOKENS, EMBED_DIM]
     float*       __restrict__ pooled, // [EMBED_DIM]
@@ -151,9 +157,10 @@ __global__ void global_spatiotemporal_pool_kernel(
     pooled[d] = sum / static_cast<float>(total_tokens);
 }
 
-// Linear Classification Layer: Computes logits across categories (D -> C)
+// This functin takes the hypercube snapshot summary vector (embed_dim)
+// and computes logits for each category.
 __global__ void linear_classifier_kernel(
-    const float* __restrict__ pooled,  // [EMBED_DIM]
+    const float* __restrict__ pooled,  // [EMBED_DIM], the feature values are aggregated into pooled from [TOTAL_TOKENS, EMBED_DIM] via averaging.
     const float* __restrict__ W_class, // [EMBED_DIM, NUM_CLASSES]
     float*       __restrict__ logits,  // [NUM_CLASSES]
     int embed_dim, int num_classes)
@@ -163,6 +170,7 @@ __global__ void linear_classifier_kernel(
 
     float score = 0.0f;
     for (int d = 0; d < embed_dim; ++d) {
+        // [EMBED_DIM] * [EMBED_DIM, NUM_CLASSES] = [NUM_CLASSES]
         score += pooled[d] * W_class[d * num_classes + c];
     }
     logits[c] = score;
@@ -175,10 +183,10 @@ __global__ void linear_classifier_kernel(
 // and un-pools loss gradients back to all (T * N) spatio-temporal tokens.
 __global__ void softmax_cross_entropy_kernel(
     const float* __restrict__ logits,
-    const float* __restrict__ pooled,
+    const float* __restrict__ pooled,     // Forward activations needed for dL/dW_class
     const int*   __restrict__ label,
-    const float* __restrict__ W_class,    // [EMBED_DIM, NUM_CLASSES]
-    float*       __restrict__ dL_dtokens, // [TOTAL_TOKENS, EMBED_DIM]
+    const float* __restrict__ W_class,    // Shape: [EMBED_DIM, NUM_CLASSES]
+    float*       __restrict__ dL_dtokens, // Shape: [TOTAL_TOKENS, EMBED_DIM]
     float*       __restrict__ dL_dW_class,
     float*       __restrict__ loss_out,
     int*         __restrict__ correct_out,
@@ -199,11 +207,13 @@ __global__ void softmax_cross_entropy_kernel(
         *correct_out = (argmax == target) ? 1 : 0;
     }
 
+    // Softmax Denominator
     float sum_exp = 0.0f;
     for (int c = 0; c < num_classes; ++c) {
         sum_exp += expf(logits[c] - max_logit);
     }
 
+    // Cross-Entropy Loss Calculation
     // Clamp probability to strictly avoid log(1.0f) signed zero artifacts
     float prob_target = expf(logits[target] - max_logit) / sum_exp;
     if (threadIdx.x == 0) {
@@ -211,19 +221,29 @@ __global__ void softmax_cross_entropy_kernel(
         *loss_out = (raw_loss < 1e-7f) ? 0.0f : raw_loss;
     }
 
+    // Gradient Backpropagation
     int d = blockIdx.x * blockDim.x + threadIdx.x;
     if (d < embed_dim) {
-        float pooled_val = pooled[d];
+        float pooled_val = pooled[d];  // Read activation for feature dimension d
         float grad_pooled = 0.0f;
 
         for (int c = 0; c < num_classes; ++c) {
             float p_c = expf(logits[c] - max_logit) / sum_exp;
             float dL_dlogit = p_c - (c == target ? 1.0f : 0.0f);
 
+            // 1. Backprop into pooled representations: dL/dpooled[d] = sum_c (dL/dz_c * W_class[d, c])
             grad_pooled += dL_dlogit * W_class[d * num_classes + c];
+            // 2. Weight gradient accumulation: dL/dW_class[d, c] = dL/dz_c * pooled[d]
+            // dL_dW_class is the gradient of the loss function L with respect to the class representations matrix.
+            // Shape is [EMBED_DIM, NUM_CLASSES]
+            // W_class is used to convert snapshot vector [EMBED_DIM] into class vector/logits [NUM_CLASSES].
+            // "* num_classes" refers to the second value (number of columns) in shape.
             atomicAdd(&dL_dW_class[d * num_classes + c], dL_dlogit * pooled_val);
         }
 
+        // Divide gradient evenly across spatial patches for un-pooling
+        // dL_dtokens is the gradient of the loss function L with respect to the patch token representations matrix (tokens).
+        // Shape [TOTAL_TOKENS, EMBED_DIM]
         float grad_token = grad_pooled / static_cast<float>(total_tokens);
         for (int tok = 0; tok < total_tokens; ++tok) {
             dL_dtokens[tok * embed_dim + d] = grad_token;
