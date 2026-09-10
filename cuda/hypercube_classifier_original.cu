@@ -10,17 +10,17 @@
 // ============================================================================
 // CONFIGURATION PARAMETERS & HYPERCUBE DIMENSIONS
 // ============================================================================
-// Raw Simulation Buffer: 200 Frames x 256 Patches x 512 Words (104,857,600 Bytes / 104.85 MB)
-// Total booleans in our hypercube manifold (4 MB bitfield = 33,554,432 bits)
-// Represented in GPU memory as 4,194,304 contiguous bools (1 byte per bool for fast execution)
-constexpr int HYPERCUBE_BOOLS = 4194304; 
-
-constexpr int RAW_FRAMES        = 200;
-constexpr int TUBELET_FRAMES    = 4;                            // 4 raw frames bundled per tubelet step
-constexpr int TEMPORAL_STEPS    = RAW_FRAMES / TUBELET_FRAMES;  // T = 50 temporal tubelet steps
+constexpr int RAW_FRAMES        = 200;                          // Total raw timeframe snapshots
 constexpr int NUM_PATCHES       = 256;                          // Spatial patches (N)
 constexpr int WORDS_PER_FRAME   = 512;                          // 32-bit words per frame patch
-constexpr int WORDS_PER_PATCH   = WORDS_PER_FRAME * TUBELET_FRAMES; // 2,048 words per Tubelet patch
+constexpr int BOOLS_PER_FRAME_PATCH = WORDS_PER_FRAME * 32;     // 16,384 booleans per frame patch
+
+// Raw Hypercube size per frame = 256 patches * 16,384 bools = 4,194,304 booleans (4.19 MB)
+constexpr int HYPERCUBE_BOOLS   = NUM_PATCHES * BOOLS_PER_FRAME_PATCH; 
+
+constexpr int TUBELET_FRAMES    = 4;                            // 4 raw frames bundled per tubelet step
+constexpr int TEMPORAL_STEPS    = RAW_FRAMES / TUBELET_FRAMES;  // T = 50 temporal tubelet steps
+constexpr int WORDS_PER_PATCH   = WORDS_PER_FRAME * TUBELET_FRAMES; // 2,048 words per Tubelet patch (2048 x 32 bools)
 
 constexpr int EMBED_DIM         = 128;                          // Transformer embedding dimension (D)
 constexpr int NUM_CLASSES       = 1000;                         // 1,000 downstream classification categories
@@ -38,50 +38,37 @@ constexpr int NUM_CLASSES       = 1000;                         // 1,000 downstr
 // ============================================================================
 // 1. RAW SIMULATION BUFFER MUTATION KERNEL
 // ============================================================================
-// Fills/mutates raw 200-frame boolean hypercube state [RAW_FRAMES, NUM_PATCHES, WORDS_PER_FRAME * 32]
+// Fills/mutates raw boolean hypercube buffer formatted as [RAW_FRAMES, HYPERCUBE_BOOLS]
 __global__ void mutate_raw_hypercube_kernel(
-    bool* __restrict__ sequence_hypercube,
+    bool* __restrict__ raw_hypercube, // Shape: [RAW_FRAMES, HYPERCUBE_BOOLS]
     uint32_t seed) 
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_bools = RAW_FRAMES * NUM_PATCHES * WORDS_PER_FRAME * 32;
+    int total_bools = RAW_FRAMES * HYPERCUBE_BOOLS;
     if (tid >= total_bools) return;
-
-    // Mutate across temporal snapshots and write into multi-frame buffer
-    for (int t = 0; t < RAW_FRAMES; ++t) {
-        if (t > 0) {
-            // High-throughput 32-bit XOR-shift mutator per bit position
-            uint32_t x = tid ^ (seed + t * 0x9e3779b9);
-            x ^= x << 13;
-            x ^= x >> 17;
-            x ^= x << 5;
-            // 50% probability flip on bit evolution
-            current_state = (x & 0x1) ? !current_state : current_state;
-        }
-        sequence_hypercube[t * HYPERCUBE_BOOLS + tid] = current_state;
-    }
 
     uint32_t x = tid ^ seed;
     x ^= x << 13;
     x ^= x >> 17;
     x ^= x << 5;
-    sequence_hypercube[tid] = (x & 0x1) ? true : false;
+    raw_hypercube[tid] = (x & 0x1) ? true : false;
 }
 
 // ============================================================================
 // 2. SPATIOTEMPORAL PROJECTION KERNEL (Tubelet Slicing + Projection)
 // ============================================================================
-// Slices raw buffer into T=50 Tubelets (4 frames x 512 words = 2,048 words)
-// Map: [50 Steps, 256 Patches, 2048 Words] -> [50 Steps, 256 Tokens, 128 Features]
+// Reads raw_hypercube of shape [RAW_FRAMES, HYPERCUBE_BOOLS]
+// Slices buffer into T=50 Tubelets (4 frames x 512 words = 2,048 words per patch)
+// Map: [50 Steps, 256 Tubelets, 2048 Words] -> [50 Steps, 256 Tokens, 128 Features]
 __global__ void spatiotemporal_projection_kernel(
-    const bool* __restrict__ raw_hypercube, // [200, 256, 512 * 32] bools
-    const float* __restrict__ W_proj,        // [2048, 128]
-    float*       __restrict__ patch_tokens,  // [50, 256, 128]
-    float*       __restrict__ densities)     // [50, 256, 2048]
+    const bool* __restrict__ raw_hypercube, // [RAW_FRAMES, HYPERCUBE_BOOLS]
+    const float* __restrict__ W_proj,        // [WORDS_PER_PATCH, EMBED_DIM] = [2048, 128]
+    float*       __restrict__ patch_tokens,  // [TEMPORAL_STEPS, NUM_PATCHES, EMBED_DIM]
+    float*       __restrict__ densities)     // [TEMPORAL_STEPS, NUM_PATCHES, WORDS_PER_PATCH]
 {
-    int step_idx  = blockIdx.y; // 0 ... 49 (Temporal Tubelet Step)
-    int patch_idx = blockIdx.x; // 0 ... 255 (Spatial Patch)
-    int dim_idx   = threadIdx.x; // 0 ... 127 (Embedding Dim)
+    int step_idx  = blockIdx.y; // 0 ... 49 (Temporal Tubelet Step T)
+    int patch_idx = blockIdx.x; // 0 ... 255 (Spatial Patch N)
+    int dim_idx   = threadIdx.x; // 0 ... 127 (Embedding Dim D)
 
     if (step_idx >= TEMPORAL_STEPS || patch_idx >= NUM_PATCHES || dim_idx >= EMBED_DIM) return;
 
@@ -91,15 +78,17 @@ __global__ void spatiotemporal_projection_kernel(
     // Aggregate across 4 raw frames within this tubelet step
     for (int tube_f = 0; tube_f < TUBELET_FRAMES; ++tube_f) {
         int raw_frame_idx = step_idx * TUBELET_FRAMES + tube_f;
+
+        // Pointer to this patch's boolean slice within [RAW_FRAMES, HYPERCUBE_BOOLS] layout
         const bool* frame_patch_bools = raw_hypercube + 
-            (raw_frame_idx * NUM_PATCHES + patch_idx) * (WORDS_PER_FRAME * 32);
+            (raw_frame_idx * HYPERCUBE_BOOLS) + (patch_idx * BOOLS_PER_FRAME_PATCH);
 
         const uchar4* vec_ptr = reinterpret_cast<const uchar4*>(frame_patch_bools);
-        int num_vecs = (WORDS_PER_FRAME * 32) / 4; // 4096 uchar4s per patch frame
+        int num_vecs = BOOLS_PER_FRAME_PATCH / 4; // 4096 uchar4s per frame patch
 
         for (int i = 0; i < num_vecs; ++i) {
-            int word_in_frame = i / 8;
-            int word_in_tubelet = tube_f * WORDS_PER_FRAME + word_in_frame;
+            int word_in_frame = i / 8; // 8 uchar4s = 32 bools = 1 word
+            int word_in_tubelet = tube_f * WORDS_PER_FRAME + word_in_frame; // [0 ... 2047]
 
             if (densities != nullptr && dim_idx == 0 && (i % 8 == 0)) {
                 float density_sum = 0.0f;
@@ -108,7 +97,7 @@ __global__ void spatiotemporal_projection_kernel(
                     density_sum += (sub_b4.x ? 1.0f : 0.0f) + (sub_b4.y ? 1.0f : 0.0f) +
                                    (sub_b4.z ? 1.0f : 0.0f) + (sub_b4.w ? 1.0f : 0.0f);
                 }
-                // Store density in tubelet index [0 ... 2047]
+                // Store density into 2,048-word tubelet slot
                 densities[token_offset * WORDS_PER_PATCH + word_in_tubelet] = density_sum / 32.0f;
             }
 
@@ -157,18 +146,17 @@ __global__ void temporal_self_attention_kernel(
     const float* __restrict__ W_k,           // [128, 128]
     const float* __restrict__ W_v,           // [128, 128]
     float*       __restrict__ temporal_out, // [50, 128]
-    float*       __restrict__ attn_map_out) // [50, 50] optional output debug
+    float*       __restrict__ attn_map_out) // [50, 50]
 {
-    // Shared memory buffers for 50 temporal tokens Q, K, V projections
     __shared__ float Q[TEMPORAL_STEPS][EMBED_DIM];
     __shared__ float K[TEMPORAL_STEPS][EMBED_DIM];
     __shared__ float V[TEMPORAL_STEPS][EMBED_DIM];
-    __shared__ float A[TEMPORAL_STEPS][TEMPORAL_STEPS]; // [50, 50] Map
+    __shared__ float A[TEMPORAL_STEPS][TEMPORAL_STEPS]; // [50, 50] Attention Map
 
     int step_idx = blockIdx.x; // 0 ... 49
     int dim_idx  = threadIdx.x; // 0 ... 127
 
-    // Phase 1: Compute Linear Projections for Q, K, V
+    // Phase 1: Compute Linear Projections Q, K, V
     if (step_idx < TEMPORAL_STEPS && dim_idx < EMBED_DIM) {
         float q_val = 0.0f, k_val = 0.0f, v_val = 0.0f;
         for (int d = 0; d < EMBED_DIM; ++d) {
@@ -186,7 +174,7 @@ __global__ void temporal_self_attention_kernel(
     // Phase 2: Compute Attention Scores A = (Q * K^T) / sqrt(d_k)
     float scale = 1.0f / sqrtf(static_cast<float>(EMBED_DIM));
     if (step_idx < TEMPORAL_STEPS && dim_idx < TEMPORAL_STEPS) {
-        int target_step = dim_idx; // Treat dim_idx as column step index
+        int target_step = dim_idx;
         float score = 0.0f;
         for (int d = 0; d < EMBED_DIM; ++d) {
             score += Q[step_idx][d] * K[target_step][d];
@@ -195,7 +183,7 @@ __global__ void temporal_self_attention_kernel(
     }
     __syncthreads();
 
-    // Phase 3: Row-wise Softmax Normalization over [50, 50]
+    // Phase 3: Softmax Normalization over [50, 50]
     if (dim_idx == 0 && step_idx < TEMPORAL_STEPS) {
         float max_score = A[step_idx][0];
         for (int j = 1; j < TEMPORAL_STEPS; ++j) {
@@ -318,7 +306,6 @@ __global__ void softmax_cross_entropy_kernel(
     }
 }
 
-// Un-pools loss gradients back to patch tokens across all 50 x 256 spatio-temporal tokens
 __global__ void spatiotemporal_backward_kernel(
     const float* __restrict__ dL_dpooled,  // [128]
     const float* __restrict__ densities,   // [50 * 256, 2048]
@@ -366,12 +353,12 @@ __global__ void adamw_update_kernel(
 // ============================================================================
 int main() {
     std::cout << "======================================================================" << std::endl;
-    std::cout << "  Complete Spatio-Temporal Hypercube Pipeline                         " << std::endl;
+    std::cout << "  Multi-Timeframe Spatio-Temporal Hypercube Classifier Pipeline        " << std::endl;
     std::cout << "======================================================================" << std::endl;
 
-    // 1. Raw Simulation Buffer Initialization
+    // 1. Raw Buffer Allocation: Format [RAW_FRAMES, HYPERCUBE_BOOLS]
     bool* d_raw_hypercube = nullptr;
-    size_t raw_bytes = static_cast<size_t>(RAW_FRAMES) * NUM_PATCHES * WORDS_PER_FRAME * 32 * sizeof(bool);
+    size_t raw_bytes = static_cast<size_t>(RAW_FRAMES) * HYPERCUBE_BOOLS * sizeof(bool);
     CUDA_CHECK(cudaMalloc(&d_raw_hypercube, raw_bytes));
 
     int h_target_label = 42;
@@ -407,7 +394,7 @@ int main() {
     CUDA_CHECK(cudaMemset(d_m_class, 0, num_class_weights * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_v_class, 0, num_class_weights * sizeof(float)));
 
-    // Xavier initialization
+    // Initialization
     std::vector<float> h_W_proj(num_proj_weights), h_W_class(num_class_weights), h_W_attn(num_attn_weights);
     for (int i = 0; i < num_proj_weights; ++i) h_W_proj[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
     for (int i = 0; i < num_class_weights; ++i) h_W_class[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
@@ -419,7 +406,7 @@ int main() {
     CUDA_CHECK(cudaMemcpy(d_W_k, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_W_v, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
 
-    // 3. Intermediate Execution Buffers
+    // 3. Intermediate Buffers
     float *d_patch_tokens = nullptr, *d_densities = nullptr;
     float *d_temporal_tokens = nullptr, *d_attn_temporal_out = nullptr, *d_attn_map = nullptr;
     float *d_pooled_seq = nullptr, *d_logits = nullptr;
@@ -438,8 +425,9 @@ int main() {
     CUDA_CHECK(cudaMalloc(&d_loss_out, sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_correct_out, sizeof(int)));
 
-    std::cout << "[+] System Initialized to Data Flow Specs:" << std::endl;
-    std::cout << "    - Raw Buffer Size: " << (raw_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;
+    std::cout << "[+] System Initialized:" << std::endl;
+    std::cout << "    - raw_hypercube Shape: [" << RAW_FRAMES << ", " << HYPERCUBE_BOOLS << "] (" 
+              << (raw_bytes / (1024.0 * 1024.0)) << " MB)" << std::endl;
     std::cout << "    - Tubelets (T): " << TEMPORAL_STEPS << " steps x " << NUM_PATCHES << " patches" << std::endl;
     std::cout << "    - Words per Tubelet Patch: " << WORDS_PER_PATCH << std::endl;
     std::cout << "    - W_proj Shape: [" << WORDS_PER_PATCH << ", " << EMBED_DIM << "]" << std::endl;
@@ -450,38 +438,38 @@ int main() {
     dim3 fwd_proj_grid(NUM_PATCHES, TEMPORAL_STEPS);
     dim3 fwd_proj_block(EMBED_DIM);
 
-    int total_raw_bools = RAW_FRAMES * NUM_PATCHES * WORDS_PER_FRAME * 32;
+    int total_raw_bools = RAW_FRAMES * HYPERCUBE_BOOLS;
     int mutate_blocks = (total_raw_bools + 255) / 256;
 
     int opt_proj_blocks  = (num_proj_weights + 255) / 256;
     int opt_class_blocks = (num_class_weights + 255) / 256;
 
-    // Training Loop Execution
+    // Execution Loop
     for (int step = 1; step <= 10; ++step) {
-        // Step 0: Raw Simulation Mutation
+        // Step 0: Raw Hypercube Mutation [RAW_FRAMES, HYPERCUBE_BOOLS]
         mutate_raw_hypercube_kernel<<<mutate_blocks, 256>>>(d_raw_hypercube, 1337 + step);
 
-        // Step 1: Spatiotemporal Tubelet Projection
+        // Step 1: Tubelet Slicing + Projection [50, 256, 128]
         spatiotemporal_projection_kernel<<<fwd_proj_grid, fwd_proj_block>>>(
             d_raw_hypercube, d_W_proj, d_patch_tokens, d_densities
         );
 
-        // Step 2: Spatial Aggregation across N=256 patches -> [50, 128]
+        // Step 2: Spatial Aggregation across 256 patches -> [50, 128]
         spatial_avg_pool_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
             d_patch_tokens, d_temporal_tokens
         );
 
-        // Step 3: Temporal Self-Attention (Q * K^T -> [50, 50] map -> Context V)
+        // Step 3: Temporal Self-Attention (Q * K^T -> [50, 50] map) -> [50, 128]
         temporal_self_attention_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
             d_temporal_tokens, d_W_q, d_W_k, d_W_v, d_attn_temporal_out, d_attn_map
         );
 
-        // Step 4: Temporal Aggregation across T=50 steps -> [128]
+        // Step 4: Temporal Aggregation across 50 steps -> [128]
         temporal_avg_pool_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
             d_attn_temporal_out, d_pooled_seq
         );
 
-        // Step 5: Linear Classifier -> [1000]
+        // Step 5: Linear Classifier -> [1000] Logits
         linear_classifier_kernel<<<(NUM_CLASSES + 255) / 256, 256>>>(
             d_pooled_seq, d_W_class, d_logits, EMBED_DIM, NUM_CLASSES
         );
@@ -523,7 +511,7 @@ int main() {
                   << std::endl;
     }
 
-    // Cleanup Resources
+    // Free allocations
     CUDA_CHECK(cudaFree(d_raw_hypercube)); CUDA_CHECK(cudaFree(d_target_label));
     CUDA_CHECK(cudaFree(d_W_proj)); CUDA_CHECK(cudaFree(d_dL_dW_proj));
     CUDA_CHECK(cudaFree(d_m_proj)); CUDA_CHECK(cudaFree(d_v_proj));
