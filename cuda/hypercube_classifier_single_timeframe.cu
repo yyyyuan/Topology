@@ -189,15 +189,20 @@ __global__ void softmax_cross_entropy_kernel(
 
     // Gradient Backpropagation
     int d = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Each thread d handles one feature dimension (d in [0, embed_dim - 1]) and
+    // iterates through all classes c in [0, num_classes-1].
     if (d < embed_dim) {
         float pooled_val = pooled[d]; // Read activation for feature dimension d
-        float grad_pooled = 0.0f;
+        float grad_pooled = 0.0f;     // accumulates the total loss gradient flowing into feature dimension d of the pooled activation vector.
 
         for (int c = 0; c < num_classes; ++c) {
             float p_c = expf(logits[c] - max_logit) / sum_exp;
+            // Logit Gradient (dL_dlogit) = p_c - y_c.
             float dL_dlogit = p_c - (c == target ? 1.0f : 0.0f);
 
             // 1. Backprop into pooled representations: dL/dpooled[d] = sum_c (dL/dz_c * W_class[d, c])
+            // Accumulates: (p_c - y_c) * W_class[d, c]
             grad_pooled += dL_dlogit * W_class[d * num_classes + c];
 
             // 2. Weight gradient accumulation: dL/dW_class[d, c] = dL/dz_c * pooled[d]
@@ -205,12 +210,14 @@ __global__ void softmax_cross_entropy_kernel(
             // Shape is [EMBED_DIM, NUM_CLASSES]
             // W_class is used to convert snapshot vector [EMBED_DIM] into class vector/logits [NUM_CLASSES].
             // "* num_classes" refers to the second value (number of columns) in shape.
+            // dL_dW_class[d, c]
             atomicAdd(&dL_dW_class[d * num_classes + c], dL_dlogit * pooled_val);
         }
 
         // Divide gradient evenly across spatial patches for un-pooling
         // dL_dtokens is the gradient of the loss function L with respect to the patch token representations matrix (tokens).
         // Shape [NUM_PATCHES, EMBED_DIM]
+        // dL_dtokens[p, d]
         float grad_token = grad_pooled / static_cast<float>(num_patches);
         for (int p = 0; p < num_patches; ++p) {
             dL_dtokens[p * embed_dim + d] = grad_token;
