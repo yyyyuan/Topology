@@ -10,20 +10,16 @@
 // ============================================================================
 // CONFIGURATION PARAMETERS & HYPERCUBE DIMENSIONS
 // ============================================================================
-// Total booleans in our hypercube manifold (4 MB bitfield = 33,554,432 bits)
-// Represented in GPU memory as 4,194,304 contiguous bools (1 byte per bool for fast execution)
-constexpr int HYPERCUBE_BOOLS = 4194304; 
+// Raw Simulation Buffer: 200 Frames x 256 Patches x 512 Words (104,857,600 Bytes / 104.85 MB)
+constexpr int RAW_FRAMES        = 200;
+constexpr int TUBELET_FRAMES    = 4;                            // 4 raw frames bundled per tubelet step
+constexpr int TEMPORAL_STEPS    = RAW_FRAMES / TUBELET_FRAMES;  // T = 50 temporal tubelet steps
+constexpr int NUM_PATCHES       = 256;                          // Spatial patches (N)
+constexpr int WORDS_PER_FRAME   = 512;                          // 32-bit words per frame patch
+constexpr int WORDS_PER_PATCH   = WORDS_PER_FRAME * TUBELET_FRAMES; // 2,048 words per Tubelet patch
 
-// Vision Transformer spatial tokenization parameters
-constexpr int NUM_PATCHES     = 256;     // Number of spatial patches/tokens per timeframe snapshot
-constexpr int NUM_TIMEFRAMES  = 4;       // Number of temporal snapshot states (T)
-constexpr int TOTAL_TOKENS    = NUM_PATCHES * NUM_TIMEFRAMES; // Total spatio-temporal tokens (T * N)
-
-constexpr int BOOLS_PER_PATCH = HYPERCUBE_BOOLS / NUM_PATCHES; // 16,384 bools / patch
-constexpr int WORDS_PER_PATCH = BOOLS_PER_PATCH / 32;          // 512 logical 32-bit word equivalents
-constexpr int TOTAL_WORDS     = WORDS_PER_PATCH * NUM_PATCHES; // 131072 words in this hypercube
-constexpr int EMBED_DIM       = 128;                           // Transformer embedding dimension (D)
-constexpr int NUM_CLASSES     = 10;                            // Downstream classification categories
+constexpr int EMBED_DIM         = 128;                          // Transformer embedding dimension (D)
+constexpr int NUM_CLASSES       = 1000;                         // 1,000 downstream classification categories
 
 #define CUDA_CHECK(call) \
     do { \
@@ -36,133 +32,207 @@ constexpr int NUM_CLASSES     = 10;                            // Downstream cla
     } while (0)
 
 // ============================================================================
-// 1. MUTATING ENGINE KERNEL (Multi-Timeframe Sequence Generation)
+// 1. RAW SIMULATION BUFFER MUTATION KERNEL
 // ============================================================================
-// Simulates continuous dynamic state transitions across time steps (t = 0 ... T-1).
-// Frame 0 holds the initial manifold baseline; subsequent frames apply high-throughput
-// XOR-shift pseudo-random bit mutators to model temporal hypercube evolution.
-__global__ void mutate_hypercube_sequence_kernel(
-    bool* __restrict__ sequence_hypercube, // [NUM_TIMEFRAMES, HYPERCUBE_BOOLS]
+// Fills/mutates raw 200-frame boolean hypercube state [RAW_FRAMES, NUM_PATCHES, WORDS_PER_FRAME * 32]
+__global__ void mutate_raw_hypercube_kernel(
+    bool* __restrict__ raw_hypercube,
     uint32_t seed) 
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= HYPERCUBE_BOOLS) return;
+    int total_bools = RAW_FRAMES * NUM_PATCHES * WORDS_PER_FRAME * 32;
+    if (tid >= total_bools) return;
 
-    // Load baseline state at t = 0
-    bool current_state = sequence_hypercube[tid]; 
-
-    // Mutate across temporal snapshots and write into multi-frame buffer
-    for (int t = 0; t < NUM_TIMEFRAMES; ++t) {
-        if (t > 0) {
-            // High-throughput 32-bit XOR-shift mutator per bit position
-            uint32_t x = tid ^ (seed + t * 0x9e3779b9);
-            x ^= x << 13;
-            x ^= x >> 17;
-            x ^= x << 5;
-            // 50% probability flip on bit evolution
-            current_state = (x & 0x1) ? !current_state : current_state;
-        }
-        sequence_hypercube[t * HYPERCUBE_BOOLS + tid] = current_state;
-    }
+    uint32_t x = tid ^ seed;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    raw_hypercube[tid] = (x & 0x1) ? true : false;
 }
 
 // ============================================================================
-// 2. SPATIO-TEMPORAL FORWARD EXTRACTION KERNEL (nvJPEG-style Vectorized Loads)
+// 2. SPATIOTEMPORAL PROJECTION KERNEL (Tubelet Slicing + Projection)
 // ============================================================================
-// Reads sub-byte/boolean states directly using 32-bit (uchar4) vectorized memory 
-// instructions. Parallelized across both Spatial Patches (blockIdx.x) and Temporal 
-// Timeframes (blockIdx.y), projecting boolean density slices into continuous embeddings.
-__global__ void vit_embed_forward_temporal_kernel(
-    const bool* __restrict__ sequence_state, // [NUM_TIMEFRAMES, HYPERCUBE_BOOLS], not a good name!
-    const float* __restrict__ W_proj,         // [WORDS_PER_PATCH, EMBED_DIM]
-    float*       __restrict__ tokens,         // [NUM_TIMEFRAMES, NUM_PATCHES, EMBED_DIM]
-    float*       __restrict__ densities)      // [NUM_TIMEFRAMES, NUM_PATCHES, WORDS_PER_PATCH]
+// Slices raw buffer into T=50 Tubelets (4 frames x 512 words = 2,048 words)
+// Map: [50 Steps, 256 Patches, 2048 Words] -> [50 Steps, 256 Tokens, 128 Features]
+__global__ void spatiotemporal_projection_kernel(
+    const bool* __restrict__ raw_hypercube, // [200, 256, 512 * 32] bools
+    const float* __restrict__ W_proj,        // [2048, 128]
+    float*       __restrict__ patch_tokens,  // [50, 256, 128]
+    float*       __restrict__ densities)     // [50, 256, 2048]
 {
-    int t_idx     = blockIdx.y; // Temporal timeframe index (0 ... T-1)
-    int patch_idx = blockIdx.x; // Spatial patch index (0 ... N-1)
-    int dim_idx   = threadIdx.x; // Embedding dimension channel (0 ... D-1)
+    int step_idx  = blockIdx.y; // 0 ... 49 (Temporal Tubelet Step)
+    int patch_idx = blockIdx.x; // 0 ... 255 (Spatial Patch)
+    int dim_idx   = threadIdx.x; // 0 ... 127 (Embedding Dim)
 
-    if (t_idx >= NUM_TIMEFRAMES || patch_idx >= NUM_PATCHES || dim_idx >= EMBED_DIM) return;
+    if (step_idx >= TEMPORAL_STEPS || patch_idx >= NUM_PATCHES || dim_idx >= EMBED_DIM) return;
 
-    int token_offset = (t_idx * NUM_PATCHES + patch_idx);
-    const bool* current_patch_state = sequence_state + t_idx * HYPERCUBE_BOOLS + patch_idx * BOOLS_PER_PATCH;
-
-    // Treat boolean region as contiguous array of uchar4 (4-byte vectorized access)
-    const uchar4* state_vec = reinterpret_cast<const uchar4*>(current_patch_state);
-
+    int token_offset = (step_idx * NUM_PATCHES + patch_idx);
     float total_projection = 0.0f;
-    int num_vecs = BOOLS_PER_PATCH / 4; // 4096 uchar4 vectors per patch, each uchar4 has 4 bools.
 
-    for (int i = 0; i < num_vecs; ++i) {
-        // Vectorized load of 4 boolean values simultaneously
-        uchar4 b4 = state_vec[i];
+    // Aggregate across 4 raw frames within this tubelet step
+    for (int tube_f = 0; tube_f < TUBELET_FRAMES; ++tube_f) {
+        int raw_frame_idx = step_idx * TUBELET_FRAMES + tube_f;
+        const bool* frame_patch_bools = raw_hypercube + 
+            (raw_frame_idx * NUM_PATCHES + patch_idx) * (WORDS_PER_FRAME * 32);
 
-        // Convert boolean states directly to float densities (1.0f or 0.0f)
-        float v0 = b4.x ? 1.0f : 0.0f;
-        float v1 = b4.y ? 1.0f : 0.0f;
-        float v2 = b4.z ? 1.0f : 0.0f;
-        float v3 = b4.w ? 1.0f : 0.0f;
+        const uchar4* vec_ptr = reinterpret_cast<const uchar4*>(frame_patch_bools);
+        int num_vecs = (WORDS_PER_FRAME * 32) / 4; // 4096 uchar4s per patch frame
 
-        // Group into 32-bool density word equivalents for backward compatibility
-        // Map to logical word equivalent (8 x uchar4 = 32 bools = 1 word)
-        int word_idx = i / 8; // 8 x 4-bools = 32 bools = 1 word
+        for (int i = 0; i < num_vecs; ++i) {
+            int word_in_frame = i / 8;
+            int word_in_tubelet = tube_f * WORDS_PER_FRAME + word_in_frame;
 
-        // Density Cache Phase: thread 0 records word-level active bit densities
-        // required during backpropagation for exact projection gradient calculation
-        if (densities != nullptr && dim_idx == 0 && (i % 8 == 0)) {
-            // Aggregate density across 32 boolean elements
-            float density_sum = 0.0f;
-            for (int k = 0; k < 8; ++k) {
-                uchar4 sub_b4 = state_vec[i + k];
-                density_sum += (sub_b4.x ? 1.0f : 0.0f) + (sub_b4.y ? 1.0f : 0.0f) +
-                               (sub_b4.z ? 1.0f : 0.0f) + (sub_b4.w ? 1.0f : 0.0f);
+            if (densities != nullptr && dim_idx == 0 && (i % 8 == 0)) {
+                float density_sum = 0.0f;
+                for (int k = 0; k < 8; ++k) {
+                    uchar4 sub_b4 = vec_ptr[i + k];
+                    density_sum += (sub_b4.x ? 1.0f : 0.0f) + (sub_b4.y ? 1.0f : 0.0f) +
+                                   (sub_b4.z ? 1.0f : 0.0f) + (sub_b4.w ? 1.0f : 0.0f);
+                }
+                // Store density in tubelet index [0 ... 2047]
+                densities[token_offset * WORDS_PER_PATCH + word_in_tubelet] = density_sum / 32.0f;
             }
-            // Store normalized activation density [0.0, 1.0] for this word slice
-            densities[token_offset * WORDS_PER_PATCH + word_idx] = density_sum / 32.0f;
-        }
 
-        // Multiply activation density by projection weights W_proj[word_idx, dim_idx]
-        // Linear embedding projection sum
-        // W_proj dimension shape: [WORDS_PER_PATCH, EMBED_DIM]
-        // Since each 32-bit word contain 4 uchar4, the w_sub stays same for 4 following uchar4.
-        // The total_projection is accumulated correctly via +=.
-        int w_sub = word_idx;
-        total_projection += (v0 + v1 + v2 + v3) * 0.25f * W_proj[w_sub * EMBED_DIM + dim_idx];
+            uchar4 b4 = vec_ptr[i];
+            float v = (b4.x ? 1.0f : 0.0f) + (b4.y ? 1.0f : 0.0f) +
+                      (b4.z ? 1.0f : 0.0f) + (b4.w ? 1.0f : 0.0f);
+
+            total_projection += v * 0.25f * W_proj[word_in_tubelet * EMBED_DIM + dim_idx];
+        }
     }
 
-    // Write final spatio-temporal token embedding output
-    // tokens dimension shape: [NUM_PATCHES, EMBED_DIM]
-    tokens[token_offset * EMBED_DIM + dim_idx] = total_projection;
+    patch_tokens[token_offset * EMBED_DIM + dim_idx] = total_projection;
 }
 
 // ============================================================================
-// 3. SPATIO-TEMPORAL AVERAGE POOLING & CLASSIFICATION
+// 3. SPATIAL AGGREGATION KERNEL
 // ============================================================================
-// Global Spatio-Temporal Average Pooling: Aggregates across all (T * N) tokens
-// into a unified D-dimensional sequence embedding vector.
-// This final compression is achived via averaging.
-// For each dimension, the value is averaged via the same dimension value across all num_patches.
-__global__ void global_spatiotemporal_pool_kernel(
-    const float* __restrict__ tokens, // [TOTAL_TOKENS, EMBED_DIM]
-    float*       __restrict__ pooled, // [EMBED_DIM]
-    int total_tokens, int embed_dim)
+// Collapses spatial patches via global average pooling across N=256 patches.
+// Map: [50 Steps, 256 Tokens, 128 Features] -> [50 Temporal Tokens, 128 Features]
+__global__ void spatial_avg_pool_kernel(
+    const float* __restrict__ patch_tokens,  // [50, 256, 128]
+    float*       __restrict__ temporal_tokens) // [50, 128]
 {
-    int d = blockIdx.x * blockDim.x + threadIdx.x;
-    if (d >= embed_dim) return;
+    int step_idx = blockIdx.x; // 0 ... 49
+    int dim_idx  = threadIdx.x; // 0 ... 127
+
+    if (step_idx >= TEMPORAL_STEPS || dim_idx >= EMBED_DIM) return;
 
     float sum = 0.0f;
-    for (int tok = 0; tok < total_tokens; ++tok) {
-        sum += tokens[tok * embed_dim + d];
+    for (int p = 0; p < NUM_PATCHES; ++p) {
+        int token_offset = step_idx * NUM_PATCHES + p;
+        sum += patch_tokens[token_offset * EMBED_DIM + dim_idx];
     }
-    pooled[d] = sum / static_cast<float>(total_tokens);
+
+    temporal_tokens[step_idx * EMBED_DIM + dim_idx] = sum / static_cast<float>(NUM_PATCHES);
 }
 
-// This functin takes the hypercube snapshot summary vector (embed_dim)
-// and computes logits for each category.
+// ============================================================================
+// 4. TEMPORAL SELF-ATTENTION KERNEL
+// ============================================================================
+// Computes Q * K^T -> [50, 50] Attention map, Softmax, and Context projection V.
+// Map: [50 Temporal Tokens, 128 Features] -> [50 Temporal Tokens, 128 Features]
+__global__ void temporal_self_attention_kernel(
+    const float* __restrict__ temporal_in,  // [50, 128]
+    const float* __restrict__ W_q,           // [128, 128]
+    const float* __restrict__ W_k,           // [128, 128]
+    const float* __restrict__ W_v,           // [128, 128]
+    float*       __restrict__ temporal_out, // [50, 128]
+    float*       __restrict__ attn_map_out) // [50, 50] optional output debug
+{
+    // Shared memory buffers for 50 temporal tokens Q, K, V projections
+    __shared__ float Q[TEMPORAL_STEPS][EMBED_DIM];
+    __shared__ float K[TEMPORAL_STEPS][EMBED_DIM];
+    __shared__ float V[TEMPORAL_STEPS][EMBED_DIM];
+    __shared__ float A[TEMPORAL_STEPS][TEMPORAL_STEPS]; // [50, 50] Map
+
+    int step_idx = blockIdx.x; // 0 ... 49
+    int dim_idx  = threadIdx.x; // 0 ... 127
+
+    // Phase 1: Compute Linear Projections for Q, K, V
+    if (step_idx < TEMPORAL_STEPS && dim_idx < EMBED_DIM) {
+        float q_val = 0.0f, k_val = 0.0f, v_val = 0.0f;
+        for (int d = 0; d < EMBED_DIM; ++d) {
+            float x = temporal_in[step_idx * EMBED_DIM + d];
+            q_val += x * W_q[d * EMBED_DIM + dim_idx];
+            k_val += x * W_k[d * EMBED_DIM + dim_idx];
+            v_val += x * W_v[d * EMBED_DIM + dim_idx];
+        }
+        Q[step_idx][dim_idx] = q_val;
+        K[step_idx][dim_idx] = k_val;
+        V[step_idx][dim_idx] = v_val;
+    }
+    __syncthreads();
+
+    // Phase 2: Compute Attention Scores A = (Q * K^T) / sqrt(d_k)
+    float scale = 1.0f / sqrtf(static_cast<float>(EMBED_DIM));
+    if (step_idx < TEMPORAL_STEPS && dim_idx < TEMPORAL_STEPS) {
+        int target_step = dim_idx; // Treat dim_idx as column step index
+        float score = 0.0f;
+        for (int d = 0; d < EMBED_DIM; ++d) {
+            score += Q[step_idx][d] * K[target_step][d];
+        }
+        A[step_idx][target_step] = score * scale;
+    }
+    __syncthreads();
+
+    // Phase 3: Row-wise Softmax Normalization over [50, 50]
+    if (dim_idx == 0 && step_idx < TEMPORAL_STEPS) {
+        float max_score = A[step_idx][0];
+        for (int j = 1; j < TEMPORAL_STEPS; ++j) {
+            if (A[step_idx][j] > max_score) max_score = A[step_idx][j];
+        }
+        float sum_exp = 0.0f;
+        for (int j = 0; j < TEMPORAL_STEPS; ++j) {
+            A[step_idx][j] = expf(A[step_idx][j] - max_score);
+            sum_exp += A[step_idx][j];
+        }
+        for (int j = 0; j < TEMPORAL_STEPS; ++j) {
+            A[step_idx][j] /= sum_exp;
+            if (attn_map_out != nullptr) {
+                attn_map_out[step_idx * TEMPORAL_STEPS + j] = A[step_idx][j];
+            }
+        }
+    }
+    __syncthreads();
+
+    // Phase 4: Context Vector Aggregation A * V
+    if (step_idx < TEMPORAL_STEPS && dim_idx < EMBED_DIM) {
+        float context = 0.0f;
+        for (int j = 0; j < TEMPORAL_STEPS; ++j) {
+            context += A[step_idx][j] * V[j][dim_idx];
+        }
+        temporal_out[step_idx * EMBED_DIM + dim_idx] = context;
+    }
+}
+
+// ============================================================================
+// 5. TEMPORAL AGGREGATION KERNEL
+// ============================================================================
+// Aggregates across 50 temporal tokens into 1 pooled sequence vector [128]
+__global__ void temporal_avg_pool_kernel(
+    const float* __restrict__ temporal_tokens, // [50, 128]
+    float*       __restrict__ pooled_seq)       // [128]
+{
+    int d = blockIdx.x * blockDim.x + threadIdx.x;
+    if (d >= EMBED_DIM) return;
+
+    float sum = 0.0f;
+    for (int t = 0; t < TEMPORAL_STEPS; ++t) {
+        sum += temporal_tokens[t * EMBED_DIM + d];
+    }
+    pooled_seq[d] = sum / static_cast<float>(TEMPORAL_STEPS);
+}
+
+// ============================================================================
+// 6. LINEAR CLASSIFIER KERNEL
+// ============================================================================
+// Projects [128] sequence vector into [1000] logits using W_class [128, 1000]
 __global__ void linear_classifier_kernel(
-    const float* __restrict__ pooled,  // [EMBED_DIM], the feature values are aggregated into pooled from [TOTAL_TOKENS, EMBED_DIM] via averaging.
-    const float* __restrict__ W_class, // [EMBED_DIM, NUM_CLASSES]
-    float*       __restrict__ logits,  // [NUM_CLASSES]
+    const float* __restrict__ pooled_seq, // [128]
+    const float* __restrict__ W_class,    // [128, 1000]
+    float*       __restrict__ logits,     // [1000]
     int embed_dim, int num_classes)
 {
     int c = blockIdx.x * blockDim.x + threadIdx.x;
@@ -170,27 +240,24 @@ __global__ void linear_classifier_kernel(
 
     float score = 0.0f;
     for (int d = 0; d < embed_dim; ++d) {
-        // [EMBED_DIM] * [EMBED_DIM, NUM_CLASSES] = [NUM_CLASSES]
-        score += pooled[d] * W_class[d * num_classes + c];
+        score += pooled_seq[d] * W_class[d * num_classes + c];
     }
     logits[c] = score;
 }
 
 // ============================================================================
-// 4. SOFTMAX LOSS & SPATIO-TEMPORAL BACKPROPAGATION
+// 7. SOFTMAX LOSS & BACKWARD GRADIENT PASS
 // ============================================================================
-// Evaluates Softmax Cross-Entropy loss, computes classifier weight gradients,
-// and un-pools loss gradients back to all (T * N) spatio-temporal tokens.
 __global__ void softmax_cross_entropy_kernel(
-    const float* __restrict__ logits,
-    const float* __restrict__ pooled,     // Forward activations needed for dL/dW_class
+    const float* __restrict__ logits,      // [1000]
+    const float* __restrict__ pooled_seq,  // [128]
     const int*   __restrict__ label,
-    const float* __restrict__ W_class,    // Shape: [EMBED_DIM, NUM_CLASSES]
-    float*       __restrict__ dL_dtokens, // Shape: [TOTAL_TOKENS, EMBED_DIM]
-    float*       __restrict__ dL_dW_class,
+    const float* __restrict__ W_class,     // [128, 1000]
+    float*       __restrict__ dL_dpooled,  // [128]
+    float*       __restrict__ dL_dW_class, // [128, 1000]
     float*       __restrict__ loss_out,
     int*         __restrict__ correct_out,
-    int total_tokens, int embed_dim, int num_classes)
+    int embed_dim, int num_classes)
 {
     int target = *label;
 
@@ -207,70 +274,48 @@ __global__ void softmax_cross_entropy_kernel(
         *correct_out = (argmax == target) ? 1 : 0;
     }
 
-    // Softmax Denominator
     float sum_exp = 0.0f;
     for (int c = 0; c < num_classes; ++c) {
         sum_exp += expf(logits[c] - max_logit);
     }
 
-    // Cross-Entropy Loss Calculation
-    // Clamp probability to strictly avoid log(1.0f) signed zero artifacts
     float prob_target = expf(logits[target] - max_logit) / sum_exp;
     if (threadIdx.x == 0) {
         float raw_loss = -logf(fminf(fmaxf(prob_target, 1e-7f), 1.0f - 1e-7f));
         *loss_out = (raw_loss < 1e-7f) ? 0.0f : raw_loss;
     }
 
-    // Gradient Backpropagation
     int d = blockIdx.x * blockDim.x + threadIdx.x;
     if (d < embed_dim) {
-        float pooled_val = pooled[d];  // Read activation for feature dimension d
-        float grad_pooled = 0.0f;
+        float pooled_val = pooled_seq[d];
+        float grad_p = 0.0f;
 
         for (int c = 0; c < num_classes; ++c) {
             float p_c = expf(logits[c] - max_logit) / sum_exp;
             float dL_dlogit = p_c - (c == target ? 1.0f : 0.0f);
-
-            // 1. Backprop into pooled representations: dL/dpooled[d] = sum_c (dL/dz_c * W_class[d, c])
-            grad_pooled += dL_dlogit * W_class[d * num_classes + c];
-            // 2. Weight gradient accumulation: dL/dW_class[d, c] = dL/dz_c * pooled[d]
-            // dL_dW_class is the gradient of the loss function L with respect to the class representations matrix.
-            // Shape is [EMBED_DIM, NUM_CLASSES]
-            // W_class is used to convert snapshot vector [EMBED_DIM] into class vector/logits [NUM_CLASSES].
-            // "* num_classes" refers to the second value (number of columns) in shape.
+            grad_p += dL_dlogit * W_class[d * num_classes + c];
             atomicAdd(&dL_dW_class[d * num_classes + c], dL_dlogit * pooled_val);
         }
-
-        // Divide gradient evenly across spatial patches for un-pooling
-        // dL_dtokens is the gradient of the loss function L with respect to the patch token representations matrix (tokens).
-        // Shape [TOTAL_TOKENS, EMBED_DIM]
-        float grad_token = grad_pooled / static_cast<float>(total_tokens);
-        for (int tok = 0; tok < total_tokens; ++tok) {
-            dL_dtokens[tok * embed_dim + d] = grad_token;
-        }
+        dL_dpooled[d] = grad_p;
     }
 }
 
-// ============================================================================
-// 5. TEMPORAL BACKWARD GRADIENT KERNEL
-// ============================================================================
-// Computes analytical gradients dL/dW_proj w.r.t projection weights by integrating 
-// spatial densities and loss gradients across all timeframes (t = 0 ... T-1).
-__global__ void vit_embed_backward_temporal_kernel(
-    const float* __restrict__ dL_dtokens, // [TOTAL_TOKENS, EMBED_DIM]
-    const float* __restrict__ densities,  // [TOTAL_TOKENS, WORDS_PER_PATCH]
-    float*       __restrict__ dL_dW_proj)  // [WORDS_PER_PATCH, EMBED_DIM]
+// Un-pools loss gradients back to patch tokens across all 50 x 256 spatio-temporal tokens
+__global__ void spatiotemporal_backward_kernel(
+    const float* __restrict__ dL_dpooled,  // [128]
+    const float* __restrict__ densities,   // [50 * 256, 2048]
+    float*       __restrict__ dL_dW_proj)   // [2048, 128]
 {
     int w_idx   = blockIdx.x;
     int dim_idx = threadIdx.x;
 
     if (w_idx >= WORDS_PER_PATCH || dim_idx >= EMBED_DIM) return;
 
-    // Accumulate projection gradients across every spatio-temporal token
     float grad_acc = 0.0f;
-    for (int tok = 0; tok < TOTAL_TOKENS; ++tok) {
+    float dL_dt = dL_dpooled[dim_idx] / static_cast<float>(TEMPORAL_STEPS * NUM_PATCHES);
+
+    for (int tok = 0; tok < TEMPORAL_STEPS * NUM_PATCHES; ++tok) {
         float density = densities[tok * WORDS_PER_PATCH + w_idx];
-        float dL_dt   = dL_dtokens[tok * EMBED_DIM + dim_idx];
         grad_acc += density * dL_dt;
     }
 
@@ -278,59 +323,52 @@ __global__ void vit_embed_backward_temporal_kernel(
 }
 
 // ============================================================================
-// 6. ADAMW OPTIMIZER KERNEL
+// 8. ADAMW OPTIMIZER KERNEL
 // ============================================================================
-// Fused CUDA AdamW parameter update kernel supporting L2 weight decay.
 __global__ void adamw_update_kernel(
-    float* __restrict__ weights,
-    const float* __restrict__ grad,
-    float* __restrict__ m,
-    float* __restrict__ v,
+    float* __restrict__ weights, const float* __restrict__ grad,
+    float* __restrict__ m, float* __restrict__ v,
     int size, float lr, float beta1, float beta2, float eps, float weight_decay, int step)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    // Decoupled Weight Decay
     float g = grad[idx] + weight_decay * weights[idx];
-
-    // First and second moment updates
     m[idx] = beta1 * m[idx] + (1.0f - beta1) * g;
     v[idx] = beta2 * v[idx] + (1.0f - beta2) * (g * g);
 
-    // Bias corrections
     float m_hat = m[idx] / (1.0f - powf(beta1, static_cast<float>(step)));
     float v_hat = v[idx] / (1.0f - powf(beta2, static_cast<float>(step)));
 
-    // Parameter update
     weights[idx] -= lr * m_hat / (sqrtf(v_hat) + eps);
 }
 
 // ============================================================================
-// 7. MAIN PIPELINE EXECUTION
+// 9. MAIN PIPELINE EXECUTION
 // ============================================================================
 int main() {
     std::cout << "======================================================================" << std::endl;
-    std::cout << "  Multi-Timeframe Spatio-Temporal Boolean Hypercube Classifier         " << std::endl;
+    std::cout << "  Complete Spatio-Temporal Hypercube Pipeline                         " << std::endl;
     std::cout << "======================================================================" << std::endl;
 
-    // 1. Allocate Multi-Timeframe Sequence Hypercube Buffer
-    bool* d_sequence_hypercube = nullptr;
-    size_t seq_bytes = static_cast<size_t>(NUM_TIMEFRAMES) * HYPERCUBE_BOOLS * sizeof(bool);
-    CUDA_CHECK(cudaMalloc(&d_sequence_hypercube, seq_bytes));
-    CUDA_CHECK(cudaMemset(d_sequence_hypercube, 1, seq_bytes)); // Baseline initialization
+    // 1. Raw Simulation Buffer Initialization
+    bool* d_raw_hypercube = nullptr;
+    size_t raw_bytes = static_cast<size_t>(RAW_FRAMES) * NUM_PATCHES * WORDS_PER_FRAME * 32 * sizeof(bool);
+    CUDA_CHECK(cudaMalloc(&d_raw_hypercube, raw_bytes));
 
-    int h_target_label = 3;
+    int h_target_label = 42;
     int* d_target_label = nullptr;
     CUDA_CHECK(cudaMalloc(&d_target_label, sizeof(int)));
     CUDA_CHECK(cudaMemcpy(d_target_label, &h_target_label, sizeof(int), cudaMemcpyHostToDevice));
 
-    // 2. Projection & Classifier Weights
-    int num_proj_weights  = WORDS_PER_PATCH * EMBED_DIM;
-    int num_class_weights = EMBED_DIM * NUM_CLASSES;
+    // 2. Weights Allocations
+    int num_proj_weights  = WORDS_PER_PATCH * EMBED_DIM; // 2048 * 128
+    int num_class_weights = EMBED_DIM * NUM_CLASSES;      // 128 * 1000
+    int num_attn_weights  = EMBED_DIM * EMBED_DIM;        // 128 * 128
 
     float *d_W_proj = nullptr, *d_dL_dW_proj = nullptr, *d_m_proj = nullptr, *d_v_proj = nullptr;
     float *d_W_class = nullptr, *d_dL_dW_class = nullptr, *d_m_class = nullptr, *d_v_class = nullptr;
+    float *d_W_q = nullptr, *d_W_k = nullptr, *d_W_v = nullptr;
 
     CUDA_CHECK(cudaMalloc(&d_W_proj, num_proj_weights * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_dL_dW_proj, num_proj_weights * sizeof(float)));
@@ -342,111 +380,123 @@ int main() {
     CUDA_CHECK(cudaMalloc(&d_m_class, num_class_weights * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_v_class, num_class_weights * sizeof(float)));
 
+    CUDA_CHECK(cudaMalloc(&d_W_q, num_attn_weights * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_W_k, num_attn_weights * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_W_v, num_attn_weights * sizeof(float)));
+
     CUDA_CHECK(cudaMemset(d_m_proj, 0, num_proj_weights * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_v_proj, 0, num_proj_weights * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_m_class, 0, num_class_weights * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_v_class, 0, num_class_weights * sizeof(float)));
 
-    // Xavier/Glorot uniform initialization on host
-    std::vector<float> h_W_proj_init(num_proj_weights);
-    std::vector<float> h_W_class_init(num_class_weights);
-    for (int i = 0; i < num_proj_weights; ++i) h_W_proj_init[i] = static_cast<float>(rand()) / RAND_MAX * 0.02f - 0.01f;
-    for (int i = 0; i < num_class_weights; ++i) h_W_class_init[i] = static_cast<float>(rand()) / RAND_MAX * 0.02f - 0.01f;
+    // Xavier initialization
+    std::vector<float> h_W_proj(num_proj_weights), h_W_class(num_class_weights), h_W_attn(num_attn_weights);
+    for (int i = 0; i < num_proj_weights; ++i) h_W_proj[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
+    for (int i = 0; i < num_class_weights; ++i) h_W_class[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
+    for (int i = 0; i < num_attn_weights; ++i) h_W_attn[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
 
-    CUDA_CHECK(cudaMemcpy(d_W_proj, h_W_proj_init.data(), num_proj_weights * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_W_class, h_W_class_init.data(), num_class_weights * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_W_proj, h_W_proj.data(), num_proj_weights * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_W_class, h_W_class.data(), num_class_weights * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_W_q, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_W_k, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_W_v, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
 
-    // 3. Intermediate Spatio-Temporal Buffers
-    float *d_tokens = nullptr, *d_densities = nullptr, *d_pooled = nullptr;
-    float *d_logits = nullptr, *d_dL_dtokens = nullptr;
-    float *d_loss_out = nullptr;
+    // 3. Intermediate Execution Buffers
+    float *d_patch_tokens = nullptr, *d_densities = nullptr;
+    float *d_temporal_tokens = nullptr, *d_attn_temporal_out = nullptr, *d_attn_map = nullptr;
+    float *d_pooled_seq = nullptr, *d_logits = nullptr;
+    float *d_dL_dpooled = nullptr, *d_loss_out = nullptr;
     int*   d_correct_out = nullptr;
 
-    CUDA_CHECK(cudaMalloc(&d_tokens, TOTAL_TOKENS * EMBED_DIM * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_densities, TOTAL_TOKENS * WORDS_PER_PATCH * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_pooled, EMBED_DIM * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_patch_tokens, TEMPORAL_STEPS * NUM_PATCHES * EMBED_DIM * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_densities, TEMPORAL_STEPS * NUM_PATCHES * WORDS_PER_PATCH * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_temporal_tokens, TEMPORAL_STEPS * EMBED_DIM * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_attn_temporal_out, TEMPORAL_STEPS * EMBED_DIM * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_attn_map, TEMPORAL_STEPS * TEMPORAL_STEPS * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_pooled_seq, EMBED_DIM * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_logits, NUM_CLASSES * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dtokens, TOTAL_TOKENS * EMBED_DIM * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_dL_dpooled, EMBED_DIM * sizeof(float)));
 
     CUDA_CHECK(cudaMalloc(&d_loss_out, sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_correct_out, sizeof(int)));
 
-    // Concurrent CUDA Streams setup
-    cudaStream_t stream_mutate, stream_train;
-    CUDA_CHECK(cudaStreamCreate(&stream_mutate));
-    CUDA_CHECK(cudaStreamCreate(&stream_train));
+    std::cout << "[+] System Initialized to Data Flow Specs:" << std::endl;
+    std::cout << "    - Raw Buffer Size: " << (raw_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;
+    std::cout << "    - Tubelets (T): " << TEMPORAL_STEPS << " steps x " << NUM_PATCHES << " patches" << std::endl;
+    std::cout << "    - Words per Tubelet Patch: " << WORDS_PER_PATCH << std::endl;
+    std::cout << "    - W_proj Shape: [" << WORDS_PER_PATCH << ", " << EMBED_DIM << "]" << std::endl;
+    std::cout << "    - Self-Attention Map Shape: [" << TEMPORAL_STEPS << ", " << TEMPORAL_STEPS << "]" << std::endl;
+    std::cout << "    - W_class Shape: [" << EMBED_DIM << ", " << NUM_CLASSES << "]" << std::endl;
 
-    std::cout << "[+] System Initialized." << std::endl;
-    std::cout << "    - Timeframes (T): " << NUM_TIMEFRAMES << std::endl;
-    std::cout << "    - Spatial Patches per Frame: " << NUM_PATCHES << std::endl;
-    std::cout << "    - Total Spatio-Temporal Tokens: " << TOTAL_TOKENS << std::endl;
+    // Grid Dimensions
+    dim3 fwd_proj_grid(NUM_PATCHES, TEMPORAL_STEPS);
+    dim3 fwd_proj_block(EMBED_DIM);
 
-    // Grid Dimensions mapping
-    dim3 fwd_grid(NUM_PATCHES, NUM_TIMEFRAMES); // X = Spatial Patches, Y = Temporal Snapshots
-    dim3 fwd_block(EMBED_DIM);
-    dim3 bwd_grid(WORDS_PER_PATCH);
-    dim3 bwd_block(EMBED_DIM);
+    int total_raw_bools = RAW_FRAMES * NUM_PATCHES * WORDS_PER_FRAME * 32;
+    int mutate_blocks = (total_raw_bools + 255) / 256;
 
-    int mutate_threads = 256;
-    int mutate_blocks  = (HYPERCUBE_BOOLS + mutate_threads - 1) / mutate_threads;
-
-    int opt_threads = 256;
-    int opt_proj_blocks  = (num_proj_weights + opt_threads - 1) / opt_threads;
-    int opt_class_blocks = (num_class_weights + opt_threads - 1) / opt_threads;
+    int opt_proj_blocks  = (num_proj_weights + 255) / 256;
+    int opt_class_blocks = (num_class_weights + 255) / 256;
 
     // Training Loop Execution
     for (int step = 1; step <= 10; ++step) {
-        // Step 1: Mutate Sequence States across time steps t = 0 ... T-1
-        mutate_hypercube_sequence_kernel<<<mutate_blocks, mutate_threads, 0, stream_mutate>>>(
-            d_sequence_hypercube, 1337 + step
+        // Step 0: Raw Simulation Mutation
+        mutate_raw_hypercube_kernel<<<mutate_blocks, 256>>>(d_raw_hypercube, 1337 + step);
+
+        // Step 1: Spatiotemporal Tubelet Projection
+        spatiotemporal_projection_kernel<<<fwd_proj_grid, fwd_proj_block>>>(
+            d_raw_hypercube, d_W_proj, d_patch_tokens, d_densities
         );
 
-        // Step 2: Extract Spatio-Temporal Token Embeddings via Vectorized GPU Loads
-        vit_embed_forward_temporal_kernel<<<fwd_grid, fwd_block, 0, stream_train>>>(
-            d_sequence_hypercube, d_W_proj, d_tokens, d_densities
+        // Step 2: Spatial Aggregation across N=256 patches -> [50, 128]
+        spatial_avg_pool_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
+            d_patch_tokens, d_temporal_tokens
         );
 
-        // Step 3: Global Spatio-Temporal Pooling across [TOTAL_TOKENS, EMBED_DIM]
-        int pool_blocks = (EMBED_DIM + 255) / 256;
-        global_spatiotemporal_pool_kernel<<<pool_blocks, 256, 0, stream_train>>>(
-            d_tokens, d_pooled, TOTAL_TOKENS, EMBED_DIM
+        // Step 3: Temporal Self-Attention (Q * K^T -> [50, 50] map -> Context V)
+        temporal_self_attention_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
+            d_temporal_tokens, d_W_q, d_W_k, d_W_v, d_attn_temporal_out, d_attn_map
         );
 
-        // Step 4: Downstream Classification
-        int class_blocks = (NUM_CLASSES + 255) / 256;
-        linear_classifier_kernel<<<class_blocks, 256, 0, stream_train>>>(
-            d_pooled, d_W_class, d_logits, EMBED_DIM, NUM_CLASSES
+        // Step 4: Temporal Aggregation across T=50 steps -> [128]
+        temporal_avg_pool_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
+            d_attn_temporal_out, d_pooled_seq
         );
 
-        // Step 5: Softmax Cross-Entropy Loss & Un-pooling Gradient Calculation
-        CUDA_CHECK(cudaMemsetAsync(d_dL_dW_class, 0, num_class_weights * sizeof(float), stream_train));
-        softmax_cross_entropy_kernel<<<pool_blocks, 256, 0, stream_train>>>(
-            d_logits, d_pooled, d_target_label, d_W_class, d_dL_dtokens, d_dL_dW_class,
-            d_loss_out, d_correct_out, TOTAL_TOKENS, EMBED_DIM, NUM_CLASSES
+        // Step 5: Linear Classifier -> [1000]
+        linear_classifier_kernel<<<(NUM_CLASSES + 255) / 256, 256>>>(
+            d_pooled_seq, d_W_class, d_logits, EMBED_DIM, NUM_CLASSES
         );
 
-        // Step 6: Backward Pass across Spatio-Temporal Token Densities
-        vit_embed_backward_temporal_kernel<<<bwd_grid, bwd_block, 0, stream_train>>>(
-            d_dL_dtokens, d_densities, d_dL_dW_proj
+        // Step 6: Softmax Loss & Backward Pass
+        CUDA_CHECK(cudaMemset(d_dL_dW_class, 0, num_class_weights * sizeof(float)));
+        softmax_cross_entropy_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
+            d_logits, d_pooled_seq, d_target_label, d_W_class,
+            d_dL_dpooled, d_dL_dW_class, d_loss_out, d_correct_out,
+            EMBED_DIM, NUM_CLASSES
         );
 
-        // Step 7: Fused AdamW Optimizer Parameter Updates
-        adamw_update_kernel<<<opt_proj_blocks, opt_threads, 0, stream_train>>>(
+        spatiotemporal_backward_kernel<<<WORDS_PER_PATCH, EMBED_DIM>>>(
+            d_dL_dpooled, d_densities, d_dL_dW_proj
+        );
+
+        // Step 7: AdamW Parameter Updates
+        adamw_update_kernel<<<opt_proj_blocks, 256>>>(
             d_W_proj, d_dL_dW_proj, d_m_proj, d_v_proj,
             num_proj_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
-        adamw_update_kernel<<<opt_class_blocks, opt_threads, 0, stream_train>>>(
+        adamw_update_kernel<<<opt_class_blocks, 256>>>(
             d_W_class, d_dL_dW_class, d_m_class, d_v_class,
             num_class_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
-        // Asynchronous readout and synchronization
+        CUDA_CHECK(cudaDeviceSynchronize());
+
         float h_loss = 0.0f;
         int h_correct = 0;
-        CUDA_CHECK(cudaMemcpyAsync(&h_loss, d_loss_out, sizeof(float), cudaMemcpyDeviceToHost, stream_train));
-        CUDA_CHECK(cudaMemcpyAsync(&h_correct, d_correct_out, sizeof(int), cudaMemcpyDeviceToHost, stream_train));
-        CUDA_CHECK(cudaStreamSynchronize(stream_train));
+        CUDA_CHECK(cudaMemcpy(&h_loss, d_loss_out, sizeof(float), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&h_correct, d_correct_out, sizeof(int), cudaMemcpyDeviceToHost));
 
         std::cout << "[Step " << std::setw(2) << step << "/10] "
                   << "Loss: " << std::fixed << std::setprecision(5) << h_loss
@@ -455,23 +505,21 @@ int main() {
                   << std::endl;
     }
 
-    // Free device resources & destroy streams
-    CUDA_CHECK(cudaStreamDestroy(stream_mutate));
-    CUDA_CHECK(cudaStreamDestroy(stream_train));
-
-    CUDA_CHECK(cudaFree(d_sequence_hypercube));
-    CUDA_CHECK(cudaFree(d_target_label));
+    // Cleanup Resources
+    CUDA_CHECK(cudaFree(d_raw_hypercube)); CUDA_CHECK(cudaFree(d_target_label));
     CUDA_CHECK(cudaFree(d_W_proj)); CUDA_CHECK(cudaFree(d_dL_dW_proj));
     CUDA_CHECK(cudaFree(d_m_proj)); CUDA_CHECK(cudaFree(d_v_proj));
     CUDA_CHECK(cudaFree(d_W_class)); CUDA_CHECK(cudaFree(d_dL_dW_class));
     CUDA_CHECK(cudaFree(d_m_class)); CUDA_CHECK(cudaFree(d_v_class));
-    CUDA_CHECK(cudaFree(d_tokens)); CUDA_CHECK(cudaFree(d_densities));
-    CUDA_CHECK(cudaFree(d_pooled)); CUDA_CHECK(cudaFree(d_logits));
-    CUDA_CHECK(cudaFree(d_dL_dtokens)); CUDA_CHECK(cudaFree(d_loss_out));
-    CUDA_CHECK(cudaFree(d_correct_out));
+    CUDA_CHECK(cudaFree(d_W_q)); CUDA_CHECK(cudaFree(d_W_k)); CUDA_CHECK(cudaFree(d_W_v));
+    CUDA_CHECK(cudaFree(d_patch_tokens)); CUDA_CHECK(cudaFree(d_densities));
+    CUDA_CHECK(cudaFree(d_temporal_tokens)); CUDA_CHECK(cudaFree(d_attn_temporal_out));
+    CUDA_CHECK(cudaFree(d_attn_map)); CUDA_CHECK(cudaFree(d_pooled_seq));
+    CUDA_CHECK(cudaFree(d_logits)); CUDA_CHECK(cudaFree(d_dL_dpooled));
+    CUDA_CHECK(cudaFree(d_loss_out)); CUDA_CHECK(cudaFree(d_correct_out));
 
     std::cout << "\n======================================================================" << std::endl;
-    std::cout << "  Multi-Timeframe Execution Complete!                                 " << std::endl;
+    std::cout << "  Spatio-Temporal Pipeline Execution Complete!                        " << std::endl;
     std::cout << "======================================================================" << std::endl;
 
     return 0;
