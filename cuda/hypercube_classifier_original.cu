@@ -35,34 +35,6 @@ constexpr int NUM_CLASSES       = 1000;                         // 1,000 downstr
         } \
     } while (0)
 
-// Simulates continuous dynamic state transitions across time steps (t = 0 ... T-1).
-// Frame 0 holds the initial manifold baseline; subsequent frames apply high-throughput
-// XOR-shift pseudo-random bit mutators to model temporal hypercube evolution.
-__global__ void mutate_hypercube_sequence_kernel(
-    bool* __restrict__ sequence_hypercube, // [NUM_TIMEFRAMES, HYPERCUBE_BOOLS]
-    uint32_t seed) 
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= HYPERCUBE_BOOLS) return;
-
-    // Load baseline state at t = 0
-    bool current_state = sequence_hypercube[tid]; 
-
-    // Mutate across temporal snapshots and write into multi-frame buffer
-    for (int t = 0; t < NUM_TIMEFRAMES; ++t) {
-        if (t > 0) {
-            // High-throughput 32-bit XOR-shift mutator per bit position
-            uint32_t x = tid ^ (seed + t * 0x9e3779b9);
-            x ^= x << 13;
-            x ^= x >> 17;
-            x ^= x << 5;
-            // 50% probability flip on bit evolution
-            current_state = (x & 0x1) ? !current_state : current_state;
-        }
-        sequence_hypercube[t * HYPERCUBE_BOOLS + tid] = current_state;
-    }
-}
-
 // ============================================================================
 // 1. RAW SIMULATION BUFFER MUTATION KERNEL
 // ============================================================================
@@ -81,6 +53,9 @@ __global__ void mutate_raw_hypercube_kernel(
     x ^= x << 5;
     raw_hypercube[tid] = (x & 0x1) ? true : false;
 }
+// ============================================================================
+// End of 1. RAW SIMULATION BUFFER MUTATION KERNEL
+// ============================================================================
 
 // ============================================================================
 // 2. SPATIOTEMPORAL PROJECTION KERNEL (Tubelet Slicing + Projection)
