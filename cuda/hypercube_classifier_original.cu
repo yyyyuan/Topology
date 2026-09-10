@@ -186,7 +186,6 @@ __global__ void softmax_cross_entropy_kernel(
 {
     int target = *label;
 
-    // Numerically stable max-logit subtraction
     float max_logit = logits[0];
     int argmax = 0;
     for (int c = 1; c < num_classes; ++c) {
@@ -205,9 +204,11 @@ __global__ void softmax_cross_entropy_kernel(
         sum_exp += expf(logits[c] - max_logit);
     }
 
+    // Clamp probability to strictly avoid log(1.0f) signed zero artifacts
     float prob_target = expf(logits[target] - max_logit) / sum_exp;
     if (threadIdx.x == 0) {
-        *loss_out = -logf(fmaxf(prob_target, 1e-7f));
+        float raw_loss = -logf(fminf(fmaxf(prob_target, 1e-7f), 1.0f - 1e-7f));
+        *loss_out = (raw_loss < 1e-7f) ? 0.0f : raw_loss;
     }
 
     int d = blockIdx.x * blockDim.x + threadIdx.x;
@@ -219,13 +220,10 @@ __global__ void softmax_cross_entropy_kernel(
             float p_c = expf(logits[c] - max_logit) / sum_exp;
             float dL_dlogit = p_c - (c == target ? 1.0f : 0.0f);
 
-            // Accumulate gradient w.r.t pooled embedding vector
             grad_pooled += dL_dlogit * W_class[d * num_classes + c];
-            // Accumulate classifier weight gradients dL/dW_class
             atomicAdd(&dL_dW_class[d * num_classes + c], dL_dlogit * pooled_val);
         }
 
-        // Un-pool global average gradient back across all spatio-temporal tokens
         float grad_token = grad_pooled / static_cast<float>(total_tokens);
         for (int tok = 0; tok < total_tokens; ++tok) {
             dL_dtokens[tok * embed_dim + d] = grad_token;
