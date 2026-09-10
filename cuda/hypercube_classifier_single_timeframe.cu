@@ -152,9 +152,9 @@ __global__ void softmax_cross_entropy_kernel(
     const float* __restrict__ logits,
     const float* __restrict__ pooled,      // <--- ADDED: Forward activations needed for dL/dW_class
     const int*   __restrict__ label,
-    const float* __restrict__ W_class,    // Shape: [EMBED_DIM, NUM_CLASSES]
-    float*       __restrict__ dL_dtokens,
-    float*       __restrict__ dL_dW_class,
+    const float* __restrict__ W_class,     // Shape: [EMBED_DIM, NUM_CLASSES]
+    float*       __restrict__ dL_dtokens,  // Shape: [NUM_PATCHES, EMBED_DIM]
+    float*       __restrict__ dL_dW_class, // Shape: [EMBED_DIM, NUM_CLASSES]
     float*       __restrict__ loss_out,
     int*         __restrict__ correct_out,
     int num_patches, int embed_dim, int num_classes)
@@ -162,6 +162,7 @@ __global__ void softmax_cross_entropy_kernel(
     int target = *label;
 
     // Argmax and Max-Logit for Numerical Stability
+    // Warning: loss_out & correct_out reported to host loop monitoring could be corrupted by asynchrounous executions.
     float max_logit = logits[0];
     int argmax = 0;
     for (int c = 1; c < num_classes; ++c) {
@@ -189,15 +190,20 @@ __global__ void softmax_cross_entropy_kernel(
 
     // Gradient Backpropagation
     int d = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Each thread d handles one feature dimension (d in [0, embed_dim - 1]) and
+    // iterates through all classes c in [0, num_classes-1].
     if (d < embed_dim) {
         float pooled_val = pooled[d]; // Read activation for feature dimension d
-        float grad_pooled = 0.0f;
+        float grad_pooled = 0.0f;     // accumulates the total loss gradient flowing into feature dimension d of the pooled activation vector.
 
         for (int c = 0; c < num_classes; ++c) {
             float p_c = expf(logits[c] - max_logit) / sum_exp;
+            // Logit Gradient (dL_dlogit) = p_c - y_c.
             float dL_dlogit = p_c - (c == target ? 1.0f : 0.0f);
 
             // 1. Backprop into pooled representations: dL/dpooled[d] = sum_c (dL/dz_c * W_class[d, c])
+            // Accumulates: (p_c - y_c) * W_class[d, c]
             grad_pooled += dL_dlogit * W_class[d * num_classes + c];
 
             // 2. Weight gradient accumulation: dL/dW_class[d, c] = dL/dz_c * pooled[d]
@@ -205,12 +211,14 @@ __global__ void softmax_cross_entropy_kernel(
             // Shape is [EMBED_DIM, NUM_CLASSES]
             // W_class is used to convert snapshot vector [EMBED_DIM] into class vector/logits [NUM_CLASSES].
             // "* num_classes" refers to the second value (number of columns) in shape.
+            // dL_dW_class[d, c]
             atomicAdd(&dL_dW_class[d * num_classes + c], dL_dlogit * pooled_val);
         }
 
         // Divide gradient evenly across spatial patches for un-pooling
         // dL_dtokens is the gradient of the loss function L with respect to the patch token representations matrix (tokens).
         // Shape [NUM_PATCHES, EMBED_DIM]
+        // dL_dtokens[p, d]
         float grad_token = grad_pooled / static_cast<float>(num_patches);
         for (int p = 0; p < num_patches; ++p) {
             dL_dtokens[p * embed_dim + d] = grad_token;
@@ -221,6 +229,7 @@ __global__ void softmax_cross_entropy_kernel(
 // ============================================================================
 // 5. BACKWARD GRADIENT KERNEL
 // ============================================================================
+// Computes the backpropagation gradient for the patch projection weight matrix.
 __global__ void vit_embed_backward_bool_kernel(
     const float* __restrict__ dL_dtokens, // [NUM_PATCHES, EMBED_DIM]
     const float* __restrict__ densities,  // [NUM_PATCHES, WORDS_PER_PATCH]
@@ -254,15 +263,19 @@ __global__ void adamw_update_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= size) return;
 
-    float g = grad[idx] + weight_decay * weights[idx];
+    // 1. Raw gradient without weight_decay added
+    float g = grad[idx];
 
+    // 2. Update moments using raw gradient
     m[idx] = beta1 * m[idx] + (1.0f - beta1) * g;
     v[idx] = beta2 * v[idx] + (1.0f - beta2) * (g * g);
 
+    // 3. Compute bias-corrected moments
     float m_hat = m[idx] / (1.0f - powf(beta1, static_cast<float>(step)));
     float v_hat = v[idx] / (1.0f - powf(beta2, static_cast<float>(step)));
 
-    weights[idx] -= lr * m_hat / (sqrtf(v_hat) + eps);
+    // 4. Decoupled update: Adaptive gradient step + direct weight decay
+    weights[idx] -= lr * (m_hat / (sqrtf(v_hat) + eps) + weight_decay * weights[idx]);
 }
 
 // ============================================================================
