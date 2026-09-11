@@ -18,6 +18,6 @@
 //              ▼  4. Temporal Aggregation (Average across 50 temporal steps)
 // [1 Pooled Sequence Vector x 128 Features]
 //              │
-//              ▼  5. Linear Classifier (W_class: [128, 1000])
+//              ▼  5. Linear Classifier Projection (W_class: [128, 1000])
 // [1000 Class Logits]
 // ==============
