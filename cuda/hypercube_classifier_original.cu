@@ -581,27 +581,27 @@ int main() {
         // AdamW Parameter Updates
         adamw_update_kernel<<<opt_proj_blocks, 256>>>(
             d_W_proj, d_dL_dW_proj, d_m_proj, d_v_proj,
-            num_proj_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+            num_proj_weights, 1e-4f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
         adamw_update_kernel<<<opt_class_blocks, 256>>>(
             d_W_class, d_dL_dW_class, d_m_class, d_v_class,
-            num_class_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+            num_class_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
         adamw_update_kernel<<<opt_attn_blocks, 256>>>(
             d_W_q, d_dL_dW_q, d_m_q, d_v_q,
-            num_attn_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+            num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
         adamw_update_kernel<<<opt_attn_blocks, 256>>>(
             d_W_k, d_dL_dW_k, d_m_k, d_v_k,
-            num_attn_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+            num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
         adamw_update_kernel<<<opt_attn_blocks, 256>>>(
             d_W_v, d_dL_dW_v, d_m_v, d_v_v,
-            num_attn_weights, 0.005f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+            num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
         );
 
         CUDA_CHECK(cudaDeviceSynchronize());
