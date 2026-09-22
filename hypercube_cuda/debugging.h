@@ -3,7 +3,8 @@
 #ifndef _DEBUGGING_H_
 #define _DEBUGGING_H_
 
-
+#include <cstdint>
+#include <cstddef>
 #include <cstdio>
 #include <fstream>
 

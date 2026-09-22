@@ -1,5 +1,7 @@
 %%writefile debugging.cu
 
+#include <cstdint>
+#include <cstddef>
 #include <fstream>
 #include <iomanip>  // Required for std::setw
 #include <iostream>

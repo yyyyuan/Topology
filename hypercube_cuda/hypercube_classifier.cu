@@ -1,4 +1,4 @@
-%%writefile main.cu
+%%writefile hypercube_classifier.cu
 
 #include "hypercube_classifier.cuh"
 
@@ -395,223 +395,223 @@ __global__ void adamw_update_kernel(
     weights[idx] -= lr * m_hat / (sqrtf(v_hat) + eps);
 }
 
-// ============================================================================
-// 9. MAIN PIPELINE EXECUTION
-// ============================================================================
-int main() {
-    std::cout << "======================================================================" << std::endl;
-    std::cout << "  Multi-Timeframe Spatio-Temporal Hypercube Classifier Pipeline        " << std::endl;
-    std::cout << "======================================================================" << std::endl;
+// // ============================================================================
+// // 9. MAIN PIPELINE EXECUTION
+// // ============================================================================
+// int main() {
+//     std::cout << "======================================================================" << std::endl;
+//     std::cout << "  Multi-Timeframe Spatio-Temporal Hypercube Classifier Pipeline        " << std::endl;
+//     std::cout << "======================================================================" << std::endl;
 
-    bool* d_raw_hypercube = nullptr;
-    size_t raw_bytes = static_cast<size_t>(RAW_FRAMES) * HYPERCUBE_BOOLS * sizeof(bool);
-    CUDA_CHECK(cudaMalloc(&d_raw_hypercube, raw_bytes));
+//     bool* d_raw_hypercube = nullptr;
+//     size_t raw_bytes = static_cast<size_t>(RAW_FRAMES) * HYPERCUBE_BOOLS * sizeof(bool);
+//     CUDA_CHECK(cudaMalloc(&d_raw_hypercube, raw_bytes));
 
-    int h_target_label = 42;
-    int* d_target_label = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_target_label, sizeof(int)));
-    CUDA_CHECK(cudaMemcpy(d_target_label, &h_target_label, sizeof(int), cudaMemcpyHostToDevice));
+//     int h_target_label = 42;
+//     int* d_target_label = nullptr;
+//     CUDA_CHECK(cudaMalloc(&d_target_label, sizeof(int)));
+//     CUDA_CHECK(cudaMemcpy(d_target_label, &h_target_label, sizeof(int), cudaMemcpyHostToDevice));
 
-    int num_proj_weights  = WORDS_PER_PATCH * EMBED_DIM;
-    int num_class_weights = EMBED_DIM * NUM_CLASSES;
-    int num_attn_weights  = EMBED_DIM * EMBED_DIM;
+//     int num_proj_weights  = WORDS_PER_PATCH * EMBED_DIM;
+//     int num_class_weights = EMBED_DIM * NUM_CLASSES;
+//     int num_attn_weights  = EMBED_DIM * EMBED_DIM;
 
-    float *d_W_proj = nullptr, *d_dL_dW_proj = nullptr, *d_m_proj = nullptr, *d_v_proj = nullptr;
-    float *d_W_class = nullptr, *d_dL_dW_class = nullptr, *d_m_class = nullptr, *d_v_class = nullptr;
+//     float *d_W_proj = nullptr, *d_dL_dW_proj = nullptr, *d_m_proj = nullptr, *d_v_proj = nullptr;
+//     float *d_W_class = nullptr, *d_dL_dW_class = nullptr, *d_m_class = nullptr, *d_v_class = nullptr;
     
-    // Attention Weights, Gradients, and Optimizer States
-    float *d_W_q = nullptr, *d_dL_dW_q = nullptr, *d_m_q = nullptr, *d_v_q = nullptr;
-    float *d_W_k = nullptr, *d_dL_dW_k = nullptr, *d_m_k = nullptr, *d_v_k = nullptr;
-    float *d_W_v = nullptr, *d_dL_dW_v = nullptr, *d_m_v = nullptr, *d_v_v = nullptr;
+//     // Attention Weights, Gradients, and Optimizer States
+//     float *d_W_q = nullptr, *d_dL_dW_q = nullptr, *d_m_q = nullptr, *d_v_q = nullptr;
+//     float *d_W_k = nullptr, *d_dL_dW_k = nullptr, *d_m_k = nullptr, *d_v_k = nullptr;
+//     float *d_W_v = nullptr, *d_dL_dW_v = nullptr, *d_m_v = nullptr, *d_v_v = nullptr;
 
-    CUDA_CHECK(cudaMalloc(&d_W_proj, num_proj_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dW_proj, num_proj_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_m_proj, num_proj_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_v_proj, num_proj_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_W_proj, num_proj_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_dL_dW_proj, num_proj_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_m_proj, num_proj_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_v_proj, num_proj_weights * sizeof(float)));
 
-    CUDA_CHECK(cudaMalloc(&d_W_class, num_class_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dW_class, num_class_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_m_class, num_class_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_v_class, num_class_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_W_class, num_class_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_dL_dW_class, num_class_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_m_class, num_class_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_v_class, num_class_weights * sizeof(float)));
 
-    CUDA_CHECK(cudaMalloc(&d_W_q, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dW_q, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_m_q, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_v_q, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_W_q, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_dL_dW_q, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_m_q, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_v_q, num_attn_weights * sizeof(float)));
 
-    CUDA_CHECK(cudaMalloc(&d_W_k, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dW_k, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_m_k, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_v_k, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_W_k, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_dL_dW_k, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_m_k, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_v_k, num_attn_weights * sizeof(float)));
 
-    CUDA_CHECK(cudaMalloc(&d_W_v, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dW_v, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_m_v, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_v_v, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_W_v, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_dL_dW_v, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_m_v, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_v_v, num_attn_weights * sizeof(float)));
 
-    CUDA_CHECK(cudaMemset(d_m_proj, 0, num_proj_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_v_proj, 0, num_proj_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_m_class, 0, num_class_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_v_class, 0, num_class_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_m_proj, 0, num_proj_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_v_proj, 0, num_proj_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_m_class, 0, num_class_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_v_class, 0, num_class_weights * sizeof(float)));
 
-    CUDA_CHECK(cudaMemset(d_m_q, 0, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_v_q, 0, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_m_k, 0, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_v_k, 0, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_m_v, 0, num_attn_weights * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_v_v, 0, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_m_q, 0, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_v_q, 0, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_m_k, 0, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_v_k, 0, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_m_v, 0, num_attn_weights * sizeof(float)));
+//     CUDA_CHECK(cudaMemset(d_v_v, 0, num_attn_weights * sizeof(float)));
 
-    std::vector<float> h_W_proj(num_proj_weights), h_W_class(num_class_weights), h_W_attn(num_attn_weights);
-    for (int i = 0; i < num_proj_weights; ++i) h_W_proj[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
-    for (int i = 0; i < num_class_weights; ++i) h_W_class[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
-    for (int i = 0; i < num_attn_weights; ++i) h_W_attn[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
+//     std::vector<float> h_W_proj(num_proj_weights), h_W_class(num_class_weights), h_W_attn(num_attn_weights);
+//     for (int i = 0; i < num_proj_weights; ++i) h_W_proj[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
+//     for (int i = 0; i < num_class_weights; ++i) h_W_class[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
+//     for (int i = 0; i < num_attn_weights; ++i) h_W_attn[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.02f;
 
-    CUDA_CHECK(cudaMemcpy(d_W_proj, h_W_proj.data(), num_proj_weights * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_W_class, h_W_class.data(), num_class_weights * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_W_q, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_W_k, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_W_v, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_W_proj, h_W_proj.data(), num_proj_weights * sizeof(float), cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_W_class, h_W_class.data(), num_class_weights * sizeof(float), cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_W_q, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_W_k, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_W_v, h_W_attn.data(), num_attn_weights * sizeof(float), cudaMemcpyHostToDevice));
 
-    float *d_patch_tokens = nullptr, *d_densities = nullptr;
-    float *d_temporal_tokens = nullptr, *d_attn_temporal_out = nullptr, *d_attn_map = nullptr;
-    float *d_pooled_seq = nullptr, *d_logits = nullptr;
-    float *d_dL_dpooled = nullptr, *d_loss_out = nullptr;
-    int*   d_correct_out = nullptr;
+//     float *d_patch_tokens = nullptr, *d_densities = nullptr;
+//     float *d_temporal_tokens = nullptr, *d_attn_temporal_out = nullptr, *d_attn_map = nullptr;
+//     float *d_pooled_seq = nullptr, *d_logits = nullptr;
+//     float *d_dL_dpooled = nullptr, *d_loss_out = nullptr;
+//     int*   d_correct_out = nullptr;
 
-    CUDA_CHECK(cudaMalloc(&d_patch_tokens, TEMPORAL_STEPS * NUM_PATCHES * EMBED_DIM * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_densities, TEMPORAL_STEPS * NUM_PATCHES * WORDS_PER_PATCH * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_temporal_tokens, TEMPORAL_STEPS * EMBED_DIM * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_attn_temporal_out, TEMPORAL_STEPS * EMBED_DIM * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_attn_map, TEMPORAL_STEPS * TEMPORAL_STEPS * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_pooled_seq, EMBED_DIM * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_logits, NUM_CLASSES * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dL_dpooled, EMBED_DIM * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_patch_tokens, TEMPORAL_STEPS * NUM_PATCHES * EMBED_DIM * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_densities, TEMPORAL_STEPS * NUM_PATCHES * WORDS_PER_PATCH * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_temporal_tokens, TEMPORAL_STEPS * EMBED_DIM * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_attn_temporal_out, TEMPORAL_STEPS * EMBED_DIM * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_attn_map, TEMPORAL_STEPS * TEMPORAL_STEPS * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_pooled_seq, EMBED_DIM * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_logits, NUM_CLASSES * sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_dL_dpooled, EMBED_DIM * sizeof(float)));
 
-    CUDA_CHECK(cudaMalloc(&d_loss_out, sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_correct_out, sizeof(int)));
+//     CUDA_CHECK(cudaMalloc(&d_loss_out, sizeof(float)));
+//     CUDA_CHECK(cudaMalloc(&d_correct_out, sizeof(int)));
 
-    std::cout << "[+] System Initialized:" << std::endl;
-    std::cout << "    - raw_hypercube Shape: [" << RAW_FRAMES << ", " << HYPERCUBE_BOOLS << "] ("
-              << (raw_bytes / (1024.0 * 1024.0)) << " MB)" << std::endl;
-    std::cout << "    - Tubelets (T): " << TEMPORAL_STEPS << " steps x " << NUM_PATCHES << " patches" << std::endl;
+//     std::cout << "[+] System Initialized:" << std::endl;
+//     std::cout << "    - raw_hypercube Shape: [" << RAW_FRAMES << ", " << HYPERCUBE_BOOLS << "] ("
+//               << (raw_bytes / (1024.0 * 1024.0)) << " MB)" << std::endl;
+//     std::cout << "    - Tubelets (T): " << TEMPORAL_STEPS << " steps x " << NUM_PATCHES << " patches" << std::endl;
 
-    dim3 fwd_proj_grid(NUM_PATCHES, TEMPORAL_STEPS);
-    dim3 fwd_proj_block(EMBED_DIM);
+//     dim3 fwd_proj_grid(NUM_PATCHES, TEMPORAL_STEPS);
+//     dim3 fwd_proj_block(EMBED_DIM);
 
-    int total_raw_bools = RAW_FRAMES * HYPERCUBE_BOOLS;
-    int mutate_blocks = (total_raw_bools + 255) / 256;
+//     int total_raw_bools = RAW_FRAMES * HYPERCUBE_BOOLS;
+//     int mutate_blocks = (total_raw_bools + 255) / 256;
 
-    int opt_proj_blocks  = (num_proj_weights + 255) / 256;
-    int opt_class_blocks = (num_class_weights + 255) / 256;
-    int opt_attn_blocks  = (num_attn_weights + 255) / 256;
+//     int opt_proj_blocks  = (num_proj_weights + 255) / 256;
+//     int opt_class_blocks = (num_class_weights + 255) / 256;
+//     int opt_attn_blocks  = (num_attn_weights + 255) / 256;
 
-    dim3 attn_back_grid((EMBED_DIM + 15) / 16, (EMBED_DIM + 15) / 16);
-    dim3 attn_back_block(16, 16);
+//     dim3 attn_back_grid((EMBED_DIM + 15) / 16, (EMBED_DIM + 15) / 16);
+//     dim3 attn_back_block(16, 16);
 
-    for (int step = 1; step <= 10; ++step) {
-        mutate_raw_hypercube_kernel<<<mutate_blocks, 256>>>(d_raw_hypercube, 1337 + step);
+//     for (int step = 1; step <= 10; ++step) {
+//         mutate_raw_hypercube_kernel<<<mutate_blocks, 256>>>(d_raw_hypercube, 1337 + step);
 
-        // Forward Pass
-        spatiotemporal_projection_kernel<<<fwd_proj_grid, fwd_proj_block>>>(
-            d_raw_hypercube, d_W_proj, d_patch_tokens, d_densities
-        );
+//         // Forward Pass
+//         spatiotemporal_projection_kernel<<<fwd_proj_grid, fwd_proj_block>>>(
+//             d_raw_hypercube, d_W_proj, d_patch_tokens, d_densities
+//         );
 
-        spatial_avg_pool_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
-            d_patch_tokens, d_temporal_tokens
-        );
+//         spatial_avg_pool_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
+//             d_patch_tokens, d_temporal_tokens
+//         );
 
-        temporal_self_attention_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
-            d_temporal_tokens, d_W_q, d_W_k, d_W_v, d_attn_temporal_out, d_attn_map
-        );
+//         temporal_self_attention_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
+//             d_temporal_tokens, d_W_q, d_W_k, d_W_v, d_attn_temporal_out, d_attn_map
+//         );
 
-        temporal_avg_pool_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
-            d_attn_temporal_out, d_pooled_seq
-        );
+//         temporal_avg_pool_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
+//             d_attn_temporal_out, d_pooled_seq
+//         );
 
-        linear_classifier_kernel<<<(NUM_CLASSES + 255) / 256, 256>>>(
-            d_pooled_seq, d_W_class, d_logits, EMBED_DIM, NUM_CLASSES
-        );
+//         linear_classifier_kernel<<<(NUM_CLASSES + 255) / 256, 256>>>(
+//             d_pooled_seq, d_W_class, d_logits, EMBED_DIM, NUM_CLASSES
+//         );
 
-        // Loss & Classification Backward Pass
-        CUDA_CHECK(cudaMemset(d_dL_dW_class, 0, num_class_weights * sizeof(float)));
-        softmax_cross_entropy_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
-            d_logits, d_pooled_seq, d_target_label, d_W_class,
-            d_dL_dpooled, d_dL_dW_class, d_loss_out, d_correct_out,
-            EMBED_DIM, NUM_CLASSES
-        );
+//         // Loss & Classification Backward Pass
+//         CUDA_CHECK(cudaMemset(d_dL_dW_class, 0, num_class_weights * sizeof(float)));
+//         softmax_cross_entropy_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
+//             d_logits, d_pooled_seq, d_target_label, d_W_class,
+//             d_dL_dpooled, d_dL_dW_class, d_loss_out, d_correct_out,
+//             EMBED_DIM, NUM_CLASSES
+//         );
 
-        // Attention Backward Pass (dL/dW_q, dL/dW_k, dL/dW_v)
-        temporal_attention_backward_kernel<<<attn_back_grid, attn_back_block>>>(
-            d_dL_dpooled, d_temporal_tokens, d_attn_map,
-            d_W_q, d_W_k, d_W_v,
-            d_dL_dW_q, d_dL_dW_k, d_dL_dW_v
-        );
+//         // Attention Backward Pass (dL/dW_q, dL/dW_k, dL/dW_v)
+//         temporal_attention_backward_kernel<<<attn_back_grid, attn_back_block>>>(
+//             d_dL_dpooled, d_temporal_tokens, d_attn_map,
+//             d_W_q, d_W_k, d_W_v,
+//             d_dL_dW_q, d_dL_dW_k, d_dL_dW_v
+//         );
 
-        // Projection Layer Backward Pass
-        spatiotemporal_backward_kernel<<<WORDS_PER_PATCH, EMBED_DIM>>>(
-            d_dL_dpooled, d_densities, d_dL_dW_proj
-        );
+//         // Projection Layer Backward Pass
+//         spatiotemporal_backward_kernel<<<WORDS_PER_PATCH, EMBED_DIM>>>(
+//             d_dL_dpooled, d_densities, d_dL_dW_proj
+//         );
 
-        // AdamW Parameter Updates
-        adamw_update_kernel<<<opt_proj_blocks, 256>>>(
-            d_W_proj, d_dL_dW_proj, d_m_proj, d_v_proj,
-            num_proj_weights, 1e-4f, 0.9f, 0.999f, 1e-8f, 0.01f, step
-        );
+//         // AdamW Parameter Updates
+//         adamw_update_kernel<<<opt_proj_blocks, 256>>>(
+//             d_W_proj, d_dL_dW_proj, d_m_proj, d_v_proj,
+//             num_proj_weights, 1e-4f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+//         );
 
-        adamw_update_kernel<<<opt_class_blocks, 256>>>(
-            d_W_class, d_dL_dW_class, d_m_class, d_v_class,
-            num_class_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
-        );
+//         adamw_update_kernel<<<opt_class_blocks, 256>>>(
+//             d_W_class, d_dL_dW_class, d_m_class, d_v_class,
+//             num_class_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+//         );
 
-        adamw_update_kernel<<<opt_attn_blocks, 256>>>(
-            d_W_q, d_dL_dW_q, d_m_q, d_v_q,
-            num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
-        );
+//         adamw_update_kernel<<<opt_attn_blocks, 256>>>(
+//             d_W_q, d_dL_dW_q, d_m_q, d_v_q,
+//             num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+//         );
 
-        adamw_update_kernel<<<opt_attn_blocks, 256>>>(
-            d_W_k, d_dL_dW_k, d_m_k, d_v_k,
-            num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
-        );
+//         adamw_update_kernel<<<opt_attn_blocks, 256>>>(
+//             d_W_k, d_dL_dW_k, d_m_k, d_v_k,
+//             num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+//         );
 
-        adamw_update_kernel<<<opt_attn_blocks, 256>>>(
-            d_W_v, d_dL_dW_v, d_m_v, d_v_v,
-            num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
-        );
+//         adamw_update_kernel<<<opt_attn_blocks, 256>>>(
+//             d_W_v, d_dL_dW_v, d_m_v, d_v_v,
+//             num_attn_weights, 0.001f, 0.9f, 0.999f, 1e-8f, 0.01f, step
+//         );
 
-        CUDA_CHECK(cudaDeviceSynchronize());
+//         CUDA_CHECK(cudaDeviceSynchronize());
 
-        float h_loss = 0.0f;
-        int h_correct = 0;
-        CUDA_CHECK(cudaMemcpy(&h_loss, d_loss_out, sizeof(float), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&h_correct, d_correct_out, sizeof(int), cudaMemcpyDeviceToHost));
+//         float h_loss = 0.0f;
+//         int h_correct = 0;
+//         CUDA_CHECK(cudaMemcpy(&h_loss, d_loss_out, sizeof(float), cudaMemcpyDeviceToHost));
+//         CUDA_CHECK(cudaMemcpy(&h_correct, d_correct_out, sizeof(int), cudaMemcpyDeviceToHost));
 
-        std::cout << "[Step " << std::setw(2) << step << "/10] "
-                  << "Loss: " << std::fixed << std::setprecision(5) << h_loss
-                  << " | Accuracy: " << std::setprecision(1) << (static_cast<float>(h_correct) * 100.0f) << "%"
-                  << " (Target Class: " << h_target_label << ")"
-                  << std::endl;
-    }
+//         std::cout << "[Step " << std::setw(2) << step << "/10] "
+//                   << "Loss: " << std::fixed << std::setprecision(5) << h_loss
+//                   << " | Accuracy: " << std::setprecision(1) << (static_cast<float>(h_correct) * 100.0f) << "%"
+//                   << " (Target Class: " << h_target_label << ")"
+//                   << std::endl;
+//     }
 
-    // Cleanup
-    CUDA_CHECK(cudaFree(d_raw_hypercube)); CUDA_CHECK(cudaFree(d_target_label));
-    CUDA_CHECK(cudaFree(d_W_proj)); CUDA_CHECK(cudaFree(d_dL_dW_proj));
-    CUDA_CHECK(cudaFree(d_m_proj)); CUDA_CHECK(cudaFree(d_v_proj));
-    CUDA_CHECK(cudaFree(d_W_class)); CUDA_CHECK(cudaFree(d_dL_dW_class));
-    CUDA_CHECK(cudaFree(d_m_class)); CUDA_CHECK(cudaFree(d_v_class));
+//     // Cleanup
+//     CUDA_CHECK(cudaFree(d_raw_hypercube)); CUDA_CHECK(cudaFree(d_target_label));
+//     CUDA_CHECK(cudaFree(d_W_proj)); CUDA_CHECK(cudaFree(d_dL_dW_proj));
+//     CUDA_CHECK(cudaFree(d_m_proj)); CUDA_CHECK(cudaFree(d_v_proj));
+//     CUDA_CHECK(cudaFree(d_W_class)); CUDA_CHECK(cudaFree(d_dL_dW_class));
+//     CUDA_CHECK(cudaFree(d_m_class)); CUDA_CHECK(cudaFree(d_v_class));
     
-    CUDA_CHECK(cudaFree(d_W_q)); CUDA_CHECK(cudaFree(d_dL_dW_q)); CUDA_CHECK(cudaFree(d_m_q)); CUDA_CHECK(cudaFree(d_v_q));
-    CUDA_CHECK(cudaFree(d_W_k)); CUDA_CHECK(cudaFree(d_dL_dW_k)); CUDA_CHECK(cudaFree(d_m_k)); CUDA_CHECK(cudaFree(d_v_k));
-    CUDA_CHECK(cudaFree(d_W_v)); CUDA_CHECK(cudaFree(d_dL_dW_v)); CUDA_CHECK(cudaFree(d_m_v)); CUDA_CHECK(cudaFree(d_v_v));
+//     CUDA_CHECK(cudaFree(d_W_q)); CUDA_CHECK(cudaFree(d_dL_dW_q)); CUDA_CHECK(cudaFree(d_m_q)); CUDA_CHECK(cudaFree(d_v_q));
+//     CUDA_CHECK(cudaFree(d_W_k)); CUDA_CHECK(cudaFree(d_dL_dW_k)); CUDA_CHECK(cudaFree(d_m_k)); CUDA_CHECK(cudaFree(d_v_k));
+//     CUDA_CHECK(cudaFree(d_W_v)); CUDA_CHECK(cudaFree(d_dL_dW_v)); CUDA_CHECK(cudaFree(d_m_v)); CUDA_CHECK(cudaFree(d_v_v));
 
-    CUDA_CHECK(cudaFree(d_patch_tokens)); CUDA_CHECK(cudaFree(d_densities));
-    CUDA_CHECK(cudaFree(d_temporal_tokens)); CUDA_CHECK(cudaFree(d_attn_temporal_out));
-    CUDA_CHECK(cudaFree(d_attn_map)); CUDA_CHECK(cudaFree(d_pooled_seq));
-    CUDA_CHECK(cudaFree(d_logits)); CUDA_CHECK(cudaFree(d_dL_dpooled));
-    CUDA_CHECK(cudaFree(d_loss_out)); CUDA_CHECK(cudaFree(d_correct_out));
+//     CUDA_CHECK(cudaFree(d_patch_tokens)); CUDA_CHECK(cudaFree(d_densities));
+//     CUDA_CHECK(cudaFree(d_temporal_tokens)); CUDA_CHECK(cudaFree(d_attn_temporal_out));
+//     CUDA_CHECK(cudaFree(d_attn_map)); CUDA_CHECK(cudaFree(d_pooled_seq));
+//     CUDA_CHECK(cudaFree(d_logits)); CUDA_CHECK(cudaFree(d_dL_dpooled));
+//     CUDA_CHECK(cudaFree(d_loss_out)); CUDA_CHECK(cudaFree(d_correct_out));
 
-    std::cout << "\n======================================================================" << std::endl;
-    std::cout << "  Spatio-Temporal Pipeline Execution Complete!                        " << std::endl;
-    std::cout << "======================================================================" << std::endl;
+//     std::cout << "\n======================================================================" << std::endl;
+//     std::cout << "  Spatio-Temporal Pipeline Execution Complete!                        " << std::endl;
+//     std::cout << "======================================================================" << std::endl;
 
-    return 0;
-}
+//     return 0;
+// }

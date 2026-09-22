@@ -3,6 +3,8 @@
 #ifndef _HYPERCUBE_KERNEL_PARAMS_H_
 #define _HYPERCUBE_KERNEL_PARAMS_H_
 
+#include <cstdint>
+
 // This struct organizes elements required in hypercube calculation
 // and is passed into kernel function for simpler function protocol.
 struct HypercubeKernelParams {

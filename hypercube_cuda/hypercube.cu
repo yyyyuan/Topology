@@ -1,5 +1,8 @@
 %%writefile hypercube.cu
 
+#include <cstdint>
+#include <cstddef>
+
 #include "debugging.h"
 #include "hypercube_classifier.cuh"
 #include "hypercube_kernel_params.cuh"
@@ -175,8 +178,25 @@ int main(int argc, char** argv) {
     dim3 fwd_grid(NUM_PATCHES);
     dim3 fwd_block(EMBED_DIM);
 
-    vit_embed_forward_kernel<<<fwd_grid, fwd_block, 0, stream_infer_>>>(
-      params.excited, d_W_proj_, d_tokens_infer_, nullptr
+    // Forward Pass
+    spatiotemporal_projection_kernel<<<fwd_proj_grid, fwd_proj_block>>>(
+        d_raw_hypercube, d_W_proj, d_patch_tokens, d_densities
+    );
+
+    spatial_avg_pool_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
+        d_patch_tokens, d_temporal_tokens
+    );
+
+    temporal_self_attention_kernel<<<TEMPORAL_STEPS, EMBED_DIM>>>(
+        d_temporal_tokens, d_W_q, d_W_k, d_W_v, d_attn_temporal_out, d_attn_map
+    );
+
+    temporal_avg_pool_kernel<<<(EMBED_DIM + 255) / 256, 256>>>(
+        d_attn_temporal_out, d_pooled_seq
+    );
+
+    linear_classifier_kernel<<<(NUM_CLASSES + 255) / 256, 256>>>(
+        d_pooled_seq, d_W_class, d_logits, EMBED_DIM, NUM_CLASSES
     );
 
     // === End of HypercubeClassifier Inference =====

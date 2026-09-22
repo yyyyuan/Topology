@@ -3,6 +3,8 @@
 #ifndef HYPERCUBE_CLASSIFIER_CUH
 #define HYPERCUBE_CLASSIFIER_CUH
 
+#include <cstdint>
+#include <cstddef>
 #include <iostream>
 #include <vector>
 #include <cuda_runtime.h>
