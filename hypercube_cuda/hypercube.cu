@@ -178,6 +178,9 @@ int main(int argc, char** argv) {
     dim3 fwd_grid(NUM_PATCHES);
     dim3 fwd_block(EMBED_DIM);
 
+    // Copy real values in hypercube into d_raw_hypercube which storoes all snapshots of hypercubes in the run.
+    cudaMemcpy(d_raw_hypercube, params.excited, N * sizeof(bool), cudaMemcpyDeviceToDevice);
+
     // Forward Pass
     spatiotemporal_projection_kernel<<<fwd_proj_grid, fwd_proj_block>>>(
         d_raw_hypercube, d_W_proj, d_patch_tokens, d_densities
@@ -202,7 +205,7 @@ int main(int argc, char** argv) {
     // === End of HypercubeClassifier Inference =====
 
     // 4. IMPORTANT: Wait for GPU to finish before host reads mapped memory!
-    cudaDeviceSynchronize();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     save_to_disk("test.bin", params.energy, 100);
 
