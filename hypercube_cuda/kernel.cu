@@ -21,7 +21,7 @@
 // Create some sub-cube for output controls, such as output nodes controlling robot motions.
 
 __global__
-void run(HypercubeKernelParams params) {
+void run(HypercubeKernelParams params, bool* d_raw_hypercube) {
 
   //if (blockIdx.x == 0) {
   //  run_input_node();
@@ -51,6 +51,11 @@ void run(HypercubeKernelParams params) {
   while (count++ < 2000) {
     for (int i = global_thread_id; i < params.node_count; i += total_compute_thread_in_grid) {
       run_vertex(i, params);
+
+      // Copy the result into the classifier buffer.
+      if (count < 200) {
+        d_raw_hypercube[count * params.node_count + global_thread_id] = params.excited[global_thread_id];
+      }
       //run_vertex_math(i, params);
     }
   }

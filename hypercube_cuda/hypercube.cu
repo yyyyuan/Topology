@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
     std::cout << "  Multi-Timeframe Spatio-Temporal Hypercube Classifier Pipeline        " << std::endl;
     std::cout << "======================================================================" << std::endl;
 
+    // This storoes all hypercube snapshots from one run over one image.
     bool* d_raw_hypercube = nullptr;
     size_t raw_bytes = static_cast<size_t>(RAW_FRAMES) * HYPERCUBE_BOOLS * sizeof(bool);
     CUDA_CHECK(cudaMalloc(&d_raw_hypercube, raw_bytes));
@@ -172,13 +173,14 @@ int main(int argc, char** argv) {
     // End of HypercubeClassifier init
     // =================================================================
 
-    run<<<16, 256>>>(params);
+    run<<<16, 256>>>(params, d_raw_hypercube);
 
     // === HypercubeClassifier Inference =====
     dim3 fwd_grid(NUM_PATCHES);
     dim3 fwd_block(EMBED_DIM);
 
     // Copy real values in hypercube into d_raw_hypercube which storoes all snapshots of hypercubes in the run.
+    // First contact between hypercube and the transformer classifier!
     cudaMemcpy(d_raw_hypercube, params.excited, N * sizeof(bool), cudaMemcpyDeviceToDevice);
 
     // Forward Pass

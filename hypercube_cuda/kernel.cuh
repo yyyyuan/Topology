@@ -6,6 +6,6 @@
 #include "hypercube_kernel_params.cuh"
 
 __global__
-void run(HypercubeKernelParams params);
+void run(HypercubeKernelParams params, bool* d_raw_hypercube);
 
 #endif
